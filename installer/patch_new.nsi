@@ -79,7 +79,7 @@ InstType "通常安装"
 Section "二进制" Section0
   SectionIn 1 RO
   SetOutPath "$INSTDIR\"
-  File /r "bin\libass-9.dll"
+  File /r "bin\ass.dll"
   File /r "bin\filter.dll"
   File /oname=$INSTDIR\SakuraChs.exe "bin\loader.exe"
   File /oname=$INSTDIR\PATCH_LICENSE.txt "HSVER.txt"

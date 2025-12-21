@@ -417,9 +417,9 @@ HWND WINAPI CreateWindowExA_(DWORD dwExStyle, LPCSTR lpClassName,
                              LPCSTR lpWindowName, DWORD dwStyle, int X, int Y,
                              int nWidth, int nHeight, HWND hWndParent,
                              HMENU hMenu, HINSTANCE hInstance, LPVOID lpParam) {
-  if (!strcmp(lpWindowName,
-              "\x82\xb3\x82\xad\x82\xe7\x81\x41\x82\xe0\x82\xe4"
-              "\x81\x42 -as the Night's, Reincarnation-")) {
+  if (strstr(lpWindowName,
+             "\x82\xb3\x82\xad\x82\xe7\x81\x41\x82\xe0\x82\xe4"
+             "\x81\x42 -as the Night's, Reincarnation-")) {
     WCHAR lpWindowNameW[NAME_SIZE], lpClassNameW[NAME_SIZE];
     MultiByteToWideChar(932, 0, lpClassName, -1, lpClassNameW, NAME_SIZE);
     if (VMENV::pSubMap) {

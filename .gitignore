@@ -1,2 +1,4 @@
 *.idb
 *.ico
+build
+lib
