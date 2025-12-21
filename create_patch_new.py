@@ -11,33 +11,34 @@ def main():
   pd_source = pd.read_excel('moyu.xlsx',sheet_name=None)
   for sheet_name, data in pd_source.items():
     print(f"Sheet name: {sheet_name}")
-    if 'pc' in data.columns:
+    if 'pc_1_1' in data.columns:
       i = 0
       for row in data.itertuples():
-        if row.pc_line and str(row.pc_line) != 'nan' and row.name_translation != '文字附加符号':
+        if row.pc_1_1 and str(row.pc_1_1) != 'nan' and row.name_translation != '文字附加符号':
           try:
-            o = int(row.pc_line, 16)
-            t = str(row.dialogue_translation)
-            if sheet_name != 'pc' and t.startswith('「'):
-              t=t.replace('「', '').replace('」','')
-            rep[o] = t
+            line_num = int(row.pc_1_1, 16)
+            line_trans = str(row.dialogue_translation)
+            if sheet_name != 'pc' and line_trans.startswith('「'):
+              line_trans=line_trans.replace('「', '').replace('」','')
+            rep[line_num] = line_trans
             i+=1
           except:
             print(row)
           
-      print(i)
+      print('Done:', i)
 
 
-  source = open('019.csv', "r", encoding="utf-8-sig") # 旧版本csv用于查漏补缺
-  reader = csv.reader(source)
-  i = 0
-  for row in reader:
-    o = int(row[1], 16)
-    if o not in rep:
-      rep[o] = row[3]
-      i += 1
-  print(i)
-  source.close()
+  # source = open('019.csv', "r", encoding="utf-8-sig") # 旧版本csv用于查漏补缺
+  # reader = csv.reader(source)
+  # i = 0
+  # for row in reader:
+  #   o = int(row[1], 16)
+  #   if o not in rep:
+  #     rep[o] = row[3]
+  #     i += 1
+  # print(i)
+  # source.close()
+
   with open("patch.bin.tmp", "wb") as tmp:
     tmp.write(pack("<L", len(rep)))
     for o, t in rep.items():
