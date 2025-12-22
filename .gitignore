@@ -1,4 +1,5 @@
 *.idb
 *.ico
+!filter/src/icon.ico
 build
 lib

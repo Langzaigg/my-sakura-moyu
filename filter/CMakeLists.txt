@@ -8,7 +8,7 @@ link_directories(lib)
 
 add_library(filter SHARED src/dllmain.cpp src/resource.h src/patch.rc
         src/overlay/i_d3d9device.cpp src/overlay/i_d3d9.cpp src/subtitle.cpp include/subtitle.h include/strsub.h include/common.h)
-add_executable(loader src/load.c)
+add_executable(loader src/load.c src/load.rc)
 target_link_libraries(filter detours d3d9 dxguid ass)
 target_link_libraries(loader filter)
 if (CMAKE_BUILD_TYPE AND ((CMAKE_BUILD_TYPE MATCHES "Debug") OR (CMAKE_BUILD_TYPE MATCHES "Deb-Clang")))
