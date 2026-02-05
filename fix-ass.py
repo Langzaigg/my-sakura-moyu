@@ -3,7 +3,6 @@ import os
 import argparse
 from pathlib import Path
 
-COLOR_TEXT = "&HFFFFFF&"
 OFFSET_X = 640               
 OFFSET_Y = -1000             
 
@@ -17,13 +16,20 @@ def get_styles(lines):
         if is_style_section and line.startswith('Style:'):
             parts = line.replace('Style: ', '').split(',')
             name = parts[0].strip()
-            outline_color = parts[5].strip().replace('&H00', '&H')
-            if not outline_color.endswith('&'): outline_color += '&'
+
+            primary = parts[3].strip().replace('&H00', '&H')
+            if not primary.endswith('&'): primary += '&'
+            outline = parts[5].strip().replace('&H00', '&H')
+            if not outline.endswith('&'): outline += '&'
+            shadow = parts[6].strip().replace('&H00', '&H')
+            if not shadow.endswith('&'): shadow += '&'
+
+            out_w = float(parts[16].strip())
+            shad_w = float(parts[17].strip())
             
-            outline_width = parts[16].strip()
             styles_dict[name] = {
-                'color': outline_color,
-                'width': outline_width
+                'primary': primary, 'outline': outline, 'shadow': shadow,
+                'out_w': out_w, 'shad_w': shad_w
             }
         elif is_style_section and line.startswith('['):
             is_style_section = False
@@ -49,8 +55,10 @@ def fix_line(line, styles_map):
     
     style_name = parts[3].strip()
     original_text = parts[9]
-
-    style_cfg = styles_map.get(style_name, {'color': '&HB89EF2&', 'width': '2'})
+    style_cfg = styles_map.get(style_name, {
+        'primary': '&HFFFFFF&', 'outline': '&HAA88F1&', 'shadow': '&HB89EF2&', 
+        'out_w': 1.0, 'shad_w': 1.0
+    })
 
     pos_match = re.search(r'\\pos\(([-]?\d+),([-]?\d+)\)', line)
     if not pos_match: return [line]
@@ -58,31 +66,40 @@ def fix_line(line, styles_map):
 
     base_shad_y = orig_y - OFFSET_Y
     base_shad_x = orig_x - OFFSET_X
+    shad_w = style_cfg['shad_w']
 
-    def transform_fshp(match):
+    common = f"\\1a&H00&\\3a&H00&\\4a&H00&"
+
+    def transform_fshp_shad(match):
+        val = float(match.group(1))
+        new_xshad = base_shad_x - val + shad_w
+        return f"\\xshad{new_xshad:g}"
+
+    t_glow = re.sub(r'\\fshp([-]?\d+(\.\d+)?)', transform_fshp_shad, original_text)
+    t_glow = re.sub(r'\\pos\([-]?\d+,[-]?\d+\)', lambda m: f"\\pos({OFFSET_X},{OFFSET_Y})", t_glow)
+    
+    raw_tags_glow = re.search(r'\{.*?\}', t_glow).group(0)
+    base_tags_glow = clean_noise(raw_tags_glow)
+    content = t_glow.replace(raw_tags_glow, '')
+    line_glow = ",".join(parts[:9]) + "," + base_tags_glow.replace('{', f'{{{common}\\yshad{base_shad_y + shad_w:g}\\bord{style_cfg["out_w"]}\\blur1.5\\4c{style_cfg["shadow"]}') + content
+
+    def transform_fshp_main(match):
         val = float(match.group(1))
         new_xshad = base_shad_x - val
         return f"\\xshad{new_xshad:g}"
 
-    processed_text = re.sub(r'\\fshp([-]?\d+(\.\d+)?)', transform_fshp, original_text)
-    processed_text = re.sub(r'\\pos\([-]?\d+,[-]?\d+\)', lambda m: f"\\pos({OFFSET_X},{OFFSET_Y})", processed_text)
+    t_main = re.sub(r'\\fshp([-]?\d+(\.\d+)?)', transform_fshp_main, original_text)
+    t_main = re.sub(r'\\pos\([-]?\d+,[-]?\d+\)', lambda m: f"\\pos({OFFSET_X},{OFFSET_Y})", t_main)
+    raw_tags_main = re.search(r'\{.*?\}', t_main).group(0)
+    base_tags_main = clean_noise(raw_tags_main)
 
-    tag_match = re.search(r'\{.*?\}', processed_text)
-    if not tag_match: return [line]
-    
-    raw_tags = tag_match.group(0)
-    base_tags = clean_noise(raw_tags)
-    content = processed_text.replace(raw_tags, '')
+    tags_outline = base_tags_main.replace('{', f'{{{common}\\yshad{base_shad_y:g}\\bord{style_cfg["out_w"]}\\blur0.5\\4c{style_cfg["outline"]}')
+    line_outline = ",".join(parts[:9]).replace('Dialogue: 0', 'Dialogue: 1') + "," + tags_outline + content
 
-    common = f"\\1a&H00&\\3a&H00&\\4a&H00&\\yshad{base_shad_y}"
+    tags_fill = base_tags_main.replace('{', f'{{{common}\\yshad{base_shad_y:g}\\bord0\\blur0\\4c{style_cfg["primary"]}')
+    line_fill = ",".join(parts[:9]).replace('Dialogue: 0', 'Dialogue: 2') + "," + tags_fill + content
 
-    tags_border = base_tags.replace('{', f'{{{common}\\bord{style_cfg["width"]}\\blur2\\4c{style_cfg["color"]}\\3c{style_cfg["color"]}')
-    line_border = ",".join(parts[:9]) + "," + tags_border + content
-
-    tags_fill = base_tags.replace('{', f'{{{common}\\bord0\\blur0\\4c{COLOR_TEXT}')
-    line_fill = ",".join(parts[:9]).replace('Dialogue: 0', 'Dialogue: 1') + "," + tags_fill + content
-
-    return [line_border, line_fill]
+    return [line_glow, line_outline, line_fill]
 
 def process(input_file, output_file):
     try:
@@ -93,7 +110,6 @@ def process(input_file, output_file):
         return
 
     styles_map = get_styles(lines)
-    
     result = []
     for line in lines:
         if 'Dialogue:' in line and r'\fshp' in line:
