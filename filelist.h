@@ -101,6 +101,7 @@ std::vector<PatchEntry> defaultEntryList{
     {"", METHOD_DIFF, "graph_vis/ETC_e201b", "ETC_e201b", 0, 0, nullptr},
     {"", METHOD_DIFF, "graph_vis/ETC_e201c", "ETC_e201c", 0, 0, nullptr},
     {"", METHOD_DIFF, "graph_vis/ETC_e201d", "ETC_e201d", 0, 0, nullptr},
+    {"", METHOD_DIFF, "graph_vis/ETC_e302a", "ETC_e302a", 0, 0, nullptr},
     {"", METHOD_DIFF, "graph_vis/ETC_e302b", "ETC_e302b", 0, 0, nullptr},
 };
 
