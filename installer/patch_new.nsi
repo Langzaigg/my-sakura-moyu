@@ -9,24 +9,25 @@ ManifestDPIAware true
 !define GAME_EXE_SHA1 "688CC80CDD358EFFD80E2BF8E28FE811FE3B436E"
 
 !define VERSIONMAJOR 0
-!define VERSIONMINOR 0
+!define VERSIONMINOR 2
 !define VERSIONBUILD 0
+!define VERSIONDATE 0222
 
 RequestExecutionLevel admin
 InstallDir "$PROGRAMFILES\Favorite\さくら、もゆ。\"
 InstallDirRegKey HKLM "${PRODUCT_REGKEY}" InstallLocation
-Name "${COMPANYNAME}-${DESCRIPTION}+H"
+Name "${COMPANYNAME}-${DESCRIPTION}-${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}(${VERSIONDATE})"
 Icon "icon\inst.ico"
 UninstallIcon "icon\uninst.ico"
-OutFile "patch_setup.exe"
+OutFile "patch_setup_v${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}_prerelease_${VERSIONDATE}.exe"
 
 SetCompressor LZMA
 
-!define MUI_ICON "icon\hs.ico"
+!define MUI_ICON "icon\inst.ico"
 !define MUI_UNICON "icon\uninst.ico"
-!define MUI_WELCOMEFINISHPAGE_BITMAP "icon\welcome.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "icon\welcome2.bmp"
 !define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "icon\header.bmp"
+!define MUI_HEADERIMAGE_BITMAP "icon\header2.bmp"
 !define MUI_HEADERIMAGE_RIGHT
 !define MUI_ABORTWARNING
 !include "MUI2.nsh"
@@ -76,14 +77,17 @@ Var StartMenuFolder
 
 InstType "通常安装"
 
-Section "二进制" Section0
+Section "主程序+1.1升级补丁" Section0
   SectionIn 1 RO
   SetOutPath "$INSTDIR\"
-  File /r "bin\libass-9.dll"
-  File /r "bin\filter.dll"
-  File /oname=$INSTDIR\SakuraChs.exe "bin\loader.exe"
+  File /r "filter.dll"
+  File /r "ass.dll"
+  File /r "Sakura.hcb"
+  File /oname=$INSTDIR\SakuraChs.exe "loader.exe"
   File /oname=$INSTDIR\PATCH_LICENSE.txt "HSVER.txt"
   File /oname=$INSTDIR\PATCH_AUTHORS.txt "AUTHORS.txt"
+  SetOutPath "$INSTDIR\voice\"
+  File /r "voice\*.*"
 SectionEnd
 
 Section "文本" Section1
@@ -98,15 +102,18 @@ Section "图形" Section2
   Delete "$INSTDIR\patch.bin"
   GetTempFileName $0
   GetTempFileName $1
+  GetTempFileName $2
   File /oname=$0 "util\fptool.exe"
   File /oname=$1 "static\diff.bin"
+  File /oname=$2 "static\list.txt"
   DetailPrint "应用图形补丁......"
-  nsExec::Exec '"$0" -p -i "$1" -o "$INSTDIR\patch.bin"'
+  nsExec::Exec '"$0" -p "$2" -i "$1" -o "$INSTDIR\patch.bin"'
   Pop $2
   StrCmp $2 0 fptoolOk fptoolFail
   fptoolFail:
   MessageBox MB_OK|MB_ICONEXCLAMATION "图形补丁失败，错误码 $2"
   fptoolOk:
+  Delete $2
   Delete $1
   Delete $0
 SectionEnd
@@ -119,17 +126,18 @@ Section "ASS字幕" Section3All
   File /r "static\subtitle\*.*"
 SectionEnd
 
-Section "OP1翻译-五言+白话" Section30
+Section "OP1翻译-白话" Section30
+  Rename "$INSTDIR\subtitle\vd1_v2.ass" "$INSTDIR\subtitle\vd1.ass"
+SectionEnd
+
+Section "OP1翻译-五言+白话" Section31
   Rename "$INSTDIR\subtitle\vd1_v0.ass" "$INSTDIR\subtitle\vd1.ass"
 SectionEnd
 
-Section "OP1翻译-七言" Section31
+Section "OP1翻译-七言" Section32
   Rename "$INSTDIR\subtitle\vd1_v1.ass" "$INSTDIR\subtitle\vd1.ass"
 SectionEnd
 
-Section "OP1翻译-白话" Section32
-  Rename "$INSTDIR\subtitle\vd1_v2.ass" "$INSTDIR\subtitle\vd1.ass"
-SectionEnd
 
 SectionGroupEnd
 
@@ -139,6 +147,13 @@ Section "额外项目" Section4
   File /r "extra\樱花摸鱼大事记.doc"
 SectionEnd
 
+Section "工作人员的留言" Section5
+  SectionIn 1
+  SetOutPath "$INSTDIR\extra"
+  File /oname=$INSTDIR\extra\留言.txt "COMMENT.txt"
+SectionEnd
+
+
 Section -FinishSection
   WriteUninstaller "$INSTDIR\uninst_patch.exe"
   SetOutPath "$INSTDIR"
@@ -146,8 +161,8 @@ Section -FinishSection
   !insertmacro MUI_STARTMENU_WRITE_BEGIN "PatchStartMenuPage"
     
     CreateDirectory "$SMPROGRAMS\$StartMenuFolder"
-    CreateShortCut "$SMPROGRAMS\$StartMenuFolder\启动.lnk" "$INSTDIR\SakuraChs.exe"
-    CreateShortCut "$SMPROGRAMS\$StartMenuFolder\卸载补丁.lnk" "$INSTDIR\uninst_patch.exe"
+    CreateShortCut "$SMPROGRAMS\$StartMenuFolder\启动汉化.lnk" "$INSTDIR\SakuraChs.exe"
+    CreateShortCut "$SMPROGRAMS\$StartMenuFolder\卸载汉化补丁.lnk" "$INSTDIR\uninst_patch.exe"
   
   !insertmacro MUI_STARTMENU_WRITE_END
 SectionEnd
@@ -221,15 +236,17 @@ FunctionEnd
   !insertmacro MUI_DESCRIPTION_TEXT ${Section31} "使用七言版本"
   !insertmacro MUI_DESCRIPTION_TEXT ${Section32} "使用白话版本"
   !insertmacro MUI_DESCRIPTION_TEXT ${Section4} "《樱花萌放》剧情梳理"
+  !insertmacro MUI_DESCRIPTION_TEXT ${Section5} "想看看大家的感想吗？合作的乐趣就在于有各种各样的人"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
-Section Uninstall
+Section Uninstall  
   !insertmacro MUI_STARTMENU_GETFOLDER "PatchStartMenuPage" $R0
-  Delete "$SMPROGRAMS\$R0\卸载补丁.lnk"
-  Delete "$SMPROGRAMS\$R0\启动.lnk"
+  Delete "$SMPROGRAMS\$R0\卸载汉化补丁.lnk"
+  Delete "$SMPROGRAMS\$R0\启动汉化.lnk"
   RMDir "$SMPROGRAMS\$R0"
   DeleteRegKey /ifempty HKLM "Software\SakuraMoyu_Patch"
   
+  Delete "$INSTDIR\extra\留言.txt"
   Delete "$INSTDIR\extra\樱花摸鱼大事记.doc"
   RMDir "$INSTDIR\extra"
   Delete "$INSTDIR\subtitle\fonts\*.*"
@@ -242,6 +259,6 @@ Section Uninstall
   Delete "$INSTDIR\PATCH_LICENSE.txt"
   Delete "$INSTDIR\SakuraChs.exe"
   Delete "$INSTDIR\filter.dll"
-  Delete "$INSTDIR\libass-9.dll"
+  Delete "$INSTDIR\ass.dll"
   Delete "$INSTDIR\uninst_patch.exe"
 SectionEnd
