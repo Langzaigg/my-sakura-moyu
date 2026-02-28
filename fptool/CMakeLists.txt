@@ -22,3 +22,11 @@ add_executable(fptool src/image.cpp src/package.cpp src/main.cpp)
 add_executable(rgba2rgb src/rgba_to_rgb.cpp)
 target_link_libraries(fptool ${ZLIB_LIBRARY} ${PNG_LIBRARY})
 target_link_libraries(rgba2rgb ${ZLIB_LIBRARY} ${PNG_LIBRARY})
+
+# Copy patch.tsv to the output directory after each build
+add_custom_command(TARGET fptool POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../patch.tsv"
+        "$<TARGET_FILE_DIR:fptool>/patch.tsv"
+    COMMENT "Copying patch.tsv to output directory"
+)

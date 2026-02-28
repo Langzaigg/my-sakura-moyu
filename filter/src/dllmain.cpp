@@ -320,14 +320,14 @@ void SakuraApp::TextTest(VMARG *Arg) {
   }
 }
 
-/** File List Loader **/
+/** Patch File List Loader **/
 bool LoadFileList() {
   char exePath[NAME_SIZE], tsvPath[NAME_SIZE];
   if (!GetModuleFileNameA(NULL, exePath, NAME_SIZE)) return false;
   char *sep = strrchr(exePath, '\\');
   if (!sep) sep = strrchr(exePath, '/');
   if (sep) *(sep + 1) = '\0'; else exePath[0] = '\0';
-  if (strcpy_s(tsvPath, exePath) || strcat_s(tsvPath, "filelist.tsv")) return false;
+  if (strcpy_s(tsvPath, exePath) || strcat_s(tsvPath, "patch.tsv")) return false;
   
   FILE *f = fopen(tsvPath, "r");
   if (!f) return false;
@@ -595,7 +595,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
 #endif
       if (!LoadFileList()) {
         MessageBoxW(GetDesktopWindow(),
-                    L"缺少 filelist.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
+                    L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
                     L"错误", MB_ICONSTOP);
         return FALSE;
       }

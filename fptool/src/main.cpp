@@ -271,7 +271,7 @@ int main(int argc, char *argv[]) {
         char *sep = strrchr(exePath, '\\');
         if (!sep) sep = strrchr(exePath, '/');
         if (sep) *(sep + 1) = '\0'; else exePath[0] = '\0';
-        if (!strcpy_s(tsvPath, exePath) && !strcat_s(tsvPath, "filelist.tsv")) {
+        if (!strcpy_s(tsvPath, exePath) && !strcat_s(tsvPath, "patch.tsv")) {
           FILE *f = fopen(tsvPath, "r");
           if (f) {
             PatchEntry entry{};

@@ -21,10 +21,10 @@ set_target_properties(filter PROPERTIES LINK_FLAGS
         "/export:DetourFinishHelperProcess,@1,NONAME /export:StartExecutable,@2")
 set_target_properties(loader PROPERTIES LINK_FLAGS /subsystem:windows,\"6.01\")
 
-# Copy filelist.tsv to the output directory after each build
+# Copy patch.tsv to the output directory after each build
 add_custom_command(TARGET loader POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/../filelist.tsv"
-        "$<TARGET_FILE_DIR:loader>/filelist.tsv"
-    COMMENT "Copying filelist.tsv to output directory"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../patch.tsv"
+        "$<TARGET_FILE_DIR:loader>/patch.tsv"
+    COMMENT "Copying patch.tsv to output directory"
 )
