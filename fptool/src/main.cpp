@@ -1,9 +1,13 @@
 #include "fvp/image.h"
 #include "fvp/package.h"
 #include <vector>
+#include <windows.h>
 
 #define FPTOOL
 #include "../../filelist.h"
+
+#define NAME_SIZE 0x200
+std::vector<PatchEntry> defaultEntryList;
 
 int runDiff(std::vector<PatchEntry> &entryArray, char *inputName,
             char *outputName, FvpPackage &output) {
@@ -242,26 +246,60 @@ int main(int argc, char *argv[]) {
       if (!listFile) {
         return -2;
       }
-      while (fscanf(listFile, "%4s%32s%32s%d%d", entry.method,
-                    entry.originalName, entry.patchName, &entry.offsetX,
-                    &entry.offsetY) != EOF) {
-
-        if (strcmp(entry.method, "R") == 0) {
-          entry.methodType = METHOD_REPL;
-        } else if (strcmp(entry.method, "P") == 0) {
-          entry.methodType = METHOD_DIFF;
-        } else if (strcmp(entry.method, "A") == 0) {
-          entry.methodType = METHOD_APPEND;
-        } else {
-          fclose(listFile);
-          return -3;
+      char line[512];
+      while (fgets(line, sizeof(line), listFile)) {
+        if (sscanf(line, "%4s%32s%32s%d%d", entry.method,
+                   entry.originalName, entry.patchName,
+                   &entry.offsetX, &entry.offsetY) == 5) {
+          if (strcmp(entry.method, "R") == 0) {
+            entry.methodType = METHOD_REPL;
+          } else if (strcmp(entry.method, "P") == 0) {
+            entry.methodType = METHOD_DIFF;
+          } else if (strcmp(entry.method, "A") == 0) {
+            entry.methodType = METHOD_APPEND;
+          } else {
+            continue;
+          }
+          entry.fileEntryPtr = output.appendFile(entry.patchName);
+          entryArray.push_back(entry);
         }
-        entry.fileEntryPtr = output.appendFile(entry.patchName);
-        entryArray.push_back(entry);
       }
       fclose(listFile);
     } else {
-      entryArray = std::move(defaultEntryList);
+      char exePath[NAME_SIZE], tsvPath[NAME_SIZE];
+      if (GetModuleFileNameA(NULL, exePath, NAME_SIZE)) {
+        char *sep = strrchr(exePath, '\\');
+        if (!sep) sep = strrchr(exePath, '/');
+        if (sep) *(sep + 1) = '\0'; else exePath[0] = '\0';
+        if (!strcpy_s(tsvPath, exePath) && !strcat_s(tsvPath, "filelist.tsv")) {
+          FILE *f = fopen(tsvPath, "r");
+          if (f) {
+            PatchEntry entry{};
+            char line[512];
+            while (fgets(line, sizeof(line), f)) {
+              if (sscanf(line, "%4s%32s%32s%d%d", entry.method,
+                         entry.originalName, entry.patchName,
+                         &entry.offsetX, &entry.offsetY) == 5) {
+                if (strcmp(entry.method, "R") == 0) {
+                  entry.methodType = METHOD_REPL;
+                }
+                else if (strcmp(entry.method, "P") == 0) {
+                  entry.methodType = METHOD_DIFF;
+                }
+                else if (strcmp(entry.method, "A") == 0) {
+                  entry.methodType = METHOD_APPEND;
+                }
+                else {
+                  continue;
+                }
+                entryArray.push_back(entry);
+              }
+            }
+            fclose(f);
+          }
+        }
+      }
+      
       for (PatchEntry &entry : entryArray) {
         entry.fileEntryPtr = output.appendFile(entry.patchName);
       }

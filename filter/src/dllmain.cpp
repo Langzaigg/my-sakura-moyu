@@ -1,4 +1,5 @@
 ﻿
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -13,6 +14,8 @@
 #include "subtitle.h"
 
 #define NAME_SIZE 0x200
+
+std::vector<PatchEntry> defaultEntryList;
 
 template <typename TYPE>
 inline void FromPtr(TYPE &pFunc, PVOID pRaw) {
@@ -317,6 +320,51 @@ void SakuraApp::TextTest(VMARG *Arg) {
   }
 }
 
+/** File List Loader **/
+bool LoadFileList() {
+  char exePath[NAME_SIZE], tsvPath[NAME_SIZE];
+  if (!GetModuleFileNameA(NULL, exePath, NAME_SIZE)) return false;
+  char *sep = strrchr(exePath, '\\');
+  if (!sep) sep = strrchr(exePath, '/');
+  if (sep) *(sep + 1) = '\0'; else exePath[0] = '\0';
+  if (strcpy_s(tsvPath, exePath) || strcat_s(tsvPath, "filelist.tsv")) return false;
+  
+  FILE *f = fopen(tsvPath, "r");
+  if (!f) return false;
+
+  defaultEntryList.clear();
+  PatchEntry entry{};
+  char line[512];
+  while (fgets(line, sizeof(line), f)) {
+    if (sscanf(line, "%4s%32s%32s%d%d", entry.method,
+        entry.originalName, entry.patchName,
+        &entry.offsetX, &entry.offsetY) == 5) {
+      if (!strcmp(entry.method, "R")) {
+        entry.methodType = METHOD_REPL;
+      }
+      else if (!strcmp(entry.method, "P")) {
+        entry.methodType = METHOD_DIFF;
+      }
+      else if (!strcmp(entry.method, "A")) {
+        entry.methodType = METHOD_APPEND;
+      }
+      else {
+        continue;
+      }
+      defaultEntryList.push_back(entry);
+    }
+  }
+  fclose(f);
+
+  /* FileSys::Open uses binary search, list must be sorted by originalName */
+  std::sort(defaultEntryList.begin(), defaultEntryList.end(),
+    [](const PatchEntry &a, const PatchEntry &b) {
+      return strcmp(a.originalName, b.originalName) < 0;
+    });
+
+  return true;
+}
+
 /** Global Environment **/
 HMODULE hSakuraExe;
 BOOL doTextPatch, doImagePatch, doSubPatch;
@@ -545,6 +593,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       AllocConsole();
       SetConsoleOutputCP(65001);
 #endif
+      if (!LoadFileList()) {
+        MessageBoxW(GetDesktopWindow(),
+                    L"缺少 filelist.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
+                    L"错误", MB_ICONSTOP);
+        return FALSE;
+      }
       doTextPatch = TestFile(PATH_TEXT);
       doImagePatch = TestFile(PATH_IMAGE);
       doSubPatch = TestFile(PATH_SUB VD1_NAME) && TestFile(PATH_SUB VD2_NAME) &&
