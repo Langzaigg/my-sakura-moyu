@@ -242,15 +242,37 @@ struct VMENV {
           (pVmStr->*(VMSTR::pSetString))(pEntry->pText);
           
           if (g_bDebugConsole) {
-            DebugLog("Text ID:%6d\n", pEntry->dwIndex);
+            bool bIsBlank = true;
+            
+            if (pOrgText) {
+              for (int i = 0; pOrgText[i] != '\0'; i++) {
+                if ((unsigned char)pOrgText[i] > 0x20) {
+                  bIsBlank = false;
+                  break;
+                }
+              }
+            }
+            
+            if (bIsBlank && pEntry->pText) {
+              for (int i = 0; pEntry->pText[i] != '\0'; i++) {
+                if ((unsigned char)pEntry->pText[i] > 0x20) {
+                  bIsBlank = false;
+                  break;
+                }
+              }
+            }
+            
+            if (!bIsBlank) {
+              DebugLog("Text ID:%6d\n", pEntry->dwIndex);
 
-            MultiByteToWideChar(932, 0, pOrgText, -1, hTextBufW, 0x400);
-            WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
-            DebugLog("%s\n", hTextBuf);
+              MultiByteToWideChar(932, 0, pOrgText, -1, hTextBufW, 0x400);
+              WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
+              DebugLog("%s\n", hTextBuf);
 
-            MultiByteToWideChar(936, 0, pEntry->pText, -1, hTextBufW, 0x400);
-            WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
-            DebugLog("%s\n\n", hTextBuf);
+              MultiByteToWideChar(936, 0, pEntry->pText, -1, hTextBufW, 0x400);
+              WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
+              DebugLog("%s\n\n", hTextBuf);
+            }
           }
 
         } else {
