@@ -40,6 +40,16 @@ void DebugLog(const char* format, ...) {
     va_end(args);
 }
 
+void WaitBeforeExit() {
+    if (g_bDebugConsole) {
+        printf("\n程序遇到错误或请求退出。按回车键关闭控制台...\n");
+        freopen("CONIN$", "r", stdin); 
+        int c;
+        while ((c = getchar()) != '\n' && c != EOF) { }
+        getchar();
+    }
+}
+
 bool IsDebugEnabled() {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -59,6 +69,70 @@ bool IsDebugEnabled() {
     }
     LocalFree(argv);
     return bDebug;
+}
+
+void GetModuleNameFromAddress(PVOID address, char* buffer, int size) {
+    HMODULE hModule = NULL;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | 
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, 
+                           (LPCSTR)address, &hModule)) {
+        GetModuleFileNameA(hModule, buffer, size);
+    } else {
+        strcpy_s(buffer, size, "Unknown Module");
+    }
+}
+
+LONG WINAPI MyUnhandledExceptionFilter(EXCEPTION_POINTERS* ExceptionInfo) {
+    char crashMsg[1024];
+    char moduleName[NAME_SIZE];
+    
+    GetModuleNameFromAddress(ExceptionInfo->ExceptionRecord->ExceptionAddress, moduleName, NAME_SIZE);
+
+    sprintf_s(crashMsg, sizeof(crashMsg),
+        "====================================================\n"
+        "CRASH REPORT\n"
+        "====================================================\n"
+        "Exception Code   : 0x%08X\n"
+        "Fault Address    : 0x%p\n"
+        "Module Name      : %s\n"
+        "====================================================\n",
+        ExceptionInfo->ExceptionRecord->ExceptionCode,
+        ExceptionInfo->ExceptionRecord->ExceptionAddress,
+        moduleName
+    );
+
+    if (g_bDebugConsole) {
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+        
+        printf("\n%s", crashMsg);
+        
+        if (g_pLogFile) {
+            fprintf(g_pLogFile, "%s", crashMsg);
+            fflush(g_pLogFile);
+        }
+
+        WaitBeforeExit();
+    }
+    else {
+        FILE* fCrash = nullptr;
+        fopen_s(&fCrash, "crash_dump.txt", "a+"); 
+        if (fCrash) {
+            SYSTEMTIME st;
+            GetLocalTime(&st);
+            fprintf(fCrash, "[%04d-%02d-%02d %02d:%02d:%02d] \n", 
+                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+            fprintf(fCrash, "%s\n\n", crashMsg);
+            fclose(fCrash);
+        }
+
+        MessageBoxA(NULL, 
+            "程序发生了意外错误并已停止工作。\n请查看游戏目录下的 crash_dump.txt 获取详细信息。", 
+            "致命错误 (Fatal Error)", 
+            MB_ICONERROR | MB_OK);
+    }
+
+    return EXCEPTION_EXECUTE_HANDLER;
 }
 
 template <typename TYPE>
@@ -657,6 +731,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
   }
   switch (ulReason) {
     case DLL_PROCESS_ATTACH: {
+      SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);
+
       if (IsDebugEnabled()) {
         g_bDebugConsole = true;
         
@@ -684,6 +760,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         MessageBoxW(GetDesktopWindow(),
                     L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
                     L"错误", MB_ICONSTOP);
+        WaitBeforeExit();
         return FALSE;
       }
       
@@ -702,6 +779,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
           MessageBoxW(GetDesktopWindow(),
                       L"无法载入Direct3D9，请检查是否安装了相应的运行库",
                       L"错误", MB_ICONSTOP);
+          WaitBeforeExit();
           return FALSE;
         }
         pDirect3DCreate9 = (PFUNC_Direct3DCreate9)GetProcAddress(
@@ -728,6 +806,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         if (!VMENV::pSubMap || !VMENV::pSubMap->Exist()) {
           MessageBoxW(GetDesktopWindow(), L"文本载入失败", L"错误",
                       MB_ICONSTOP);
+          WaitBeforeExit();
           return FALSE;
         }
       }
@@ -745,6 +824,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         MessageBoxW(GetDesktopWindow(),
                     L"无法挂载函数接口，或许您使用了错误的游戏版本", L"错误",
                     MB_OK | MB_ICONSTOP);
+        WaitBeforeExit();
         return FALSE;
       }
       DebugLog("Initialization Complete. Launching game...\n");
