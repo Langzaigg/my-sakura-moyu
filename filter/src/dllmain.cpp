@@ -1,11 +1,15 @@
-﻿
-#include <algorithm>
+﻿#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <cstdarg>
 
 #include <windows.h>
 
 #include <detours.h>
+
+#include <shellapi.h>
+
+#pragma comment(lib, "shell32.lib")
 
 #include "../../filelist.h"
 #include "common.h"
@@ -16,6 +20,46 @@
 #define NAME_SIZE 0x200
 
 std::vector<PatchEntry> defaultEntryList;
+
+bool g_bDebugConsole = false; 
+FILE* g_pLogFile = nullptr;
+
+void DebugLog(const char* format, ...) {
+    if (!g_bDebugConsole) return;
+    
+    va_list args;
+    va_start(args, format);
+    
+    vprintf(format, args);
+
+    if (g_pLogFile) {
+        vfprintf(g_pLogFile, format, args);
+        fflush(g_pLogFile); 
+    }
+    
+    va_end(args);
+}
+
+bool IsDebugEnabled() {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) {
+        LPCWSTR cmd = GetCommandLineW();
+        return (wcsstr(cmd, L"-d") || wcsstr(cmd, L"-debug") || wcsstr(cmd, L"--debug"));
+    }
+    
+    bool bDebug = false;
+    for (int i = 1; i < argc; ++i) {
+        if (_wcsicmp(argv[i], L"-d") == 0 || 
+            _wcsicmp(argv[i], L"-debug") == 0 || 
+            _wcsicmp(argv[i], L"--debug") == 0) {
+            bDebug = true;
+            break;
+        }
+    }
+    LocalFree(argv);
+    return bDebug;
+}
 
 template <typename TYPE>
 inline void FromPtr(TYPE &pFunc, PVOID pRaw) {
@@ -193,20 +237,22 @@ struct VMENV {
         iStrIndex = (this->*pGetIndex)();
         SakuraApp::dwStringOffset[iStrIndex] = pEntry->dwOffset;
         pVmStr = this->pApp->GetStringByIndex(iStrIndex);
+
         if (pEntry->pText) {
           (pVmStr->*(VMSTR::pSetString))(pEntry->pText);
-#ifdef DEBUG_LOG
-          if (168 <= pEntry->dwIndex && pEntry->dwIndex < 53909) {
+          
+          if (g_bDebugConsole) {
+            DebugLog("[Debug] Text ID:%6d\n", pEntry->dwIndex);
+
             MultiByteToWideChar(932, 0, pOrgText, -1, hTextBufW, 0x400);
-            WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL,
-                                NULL);
-            DebugLog(0, "%6d %s\n", pEntry->dwIndex, hTextBuf);
+            WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
+            DebugLog("%s\n", hTextBuf);
+
             MultiByteToWideChar(936, 0, pEntry->pText, -1, hTextBufW, 0x400);
-            WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL,
-                                NULL);
-            DebugLog(0, "       %s\n\n", hTextBuf);
+            WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
+            DebugLog("%s\n\n", hTextBuf);
           }
-#endif
+
         } else {
           int Size;
           Size = MultiByteToWideChar(932, 0, pOrgText, -1, hTextBufW, 0x400);
@@ -250,7 +296,7 @@ PCSTR SakuraApp::GetStringArg(VMARG *Arg) {
 void SakuraApp::SysMovie(VMARG *Arg) {
   PCSTR pMoviePath;
   pMoviePath = GetStringArg(Arg);
-  // DebugLog(0, "Movie Load: %s\n", pMoviePath);
+  DebugLog("[Debug] Movie Load: %s\n", pMoviePath ? pMoviePath : "NULL");
   (this->*pSysMovie)(Arg);
   if (pMoviePath) {
     PCSTR pAssSubPath;
@@ -264,7 +310,7 @@ void SakuraApp::SysMovie(VMARG *Arg) {
   }
 }
 void SakuraApp::SysMovieStop(VMARG *Arg) {
-  // DebugLog(0, "Movie Stop\n");
+  DebugLog("[Debug] Movie Stop\n");
   (this->*pSysMovieStop)(Arg);
   GameApp.DetachSub();
 }
@@ -273,7 +319,7 @@ void SakuraApp::AudioLoad(VMARG *Arg) {
   (this->*pAudioLoad)(Arg);
   if (Arg->bType == 2 && 0 <= Arg->dwData && Arg->dwData < 4) {
     pAudioPath = GetStringArg(Arg + 1);
-    // DebugLog(0, "Audio Load: %d %s\n", Arg->dwData, pAudioPath);
+    DebugLog("[Debug] Audio Load: %d %s\n", Arg->dwData, pAudioPath ? pAudioPath : "NULL");
     if (pAudioPath) {
       if (!strcmp(pAudioPath, "BGM/073")) {  // ED1
         AudioSub[Arg->dwData] = PATH_SUB ED1_NAME;
@@ -288,7 +334,7 @@ void SakuraApp::AudioLoad(VMARG *Arg) {
 void SakuraApp::AudioPlay(VMARG *Arg) {
   (this->*pAudioPlay)(Arg);
   if (0 <= Arg->dwData && Arg->dwData < 4) {
-    // DebugLog(0, "Audio Play: %d\n", Arg->dwData);
+    DebugLog("[Debug] Audio Play: %d\n", Arg->dwData);
     if (AudioSub[Arg->dwData]) {
       dwAudioSubChannel = Arg->dwData;
       GameApp.AttachSub(new Subtitle((char *)AudioSub[Arg->dwData]));
@@ -298,7 +344,7 @@ void SakuraApp::AudioPlay(VMARG *Arg) {
 void SakuraApp::AudioStop(VMARG *Arg) {
   (this->*pAudioStop)(Arg);
   if (0 <= Arg->dwData && Arg->dwData < 4) {
-    // DebugLog(0, "Audio Stop: %d\n", Arg->dwData);
+    DebugLog("[Debug] Audio Stop: %d\n", Arg->dwData);
     if (AudioSub[Arg->dwData] && Arg->dwData == dwAudioSubChannel) {
       GameApp.DetachSub();
       dwAudioSubChannel = 4;
@@ -588,25 +634,47 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
     return TRUE;
   }
   switch (ulReason) {
-    case DLL_PROCESS_ATTACH:
-#ifdef DEBUG_LOG
-      AllocConsole();
-      SetConsoleOutputCP(65001);
-#endif
+    case DLL_PROCESS_ATTACH: {
+      if (IsDebugEnabled()) {
+        g_bDebugConsole = true;
+        
+        fopen_s(&g_pLogFile, "sakura_debug.log", "w");
+
+        if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
+            AllocConsole(); 
+        }
+        SetConsoleOutputCP(65001); 
+        SetConsoleCP(65001);
+        
+        FILE* fp;
+        freopen_s(&fp, "CONOUT$", "w", stdout);
+        freopen_s(&fp, "CONOUT$", "w", stderr);
+        freopen_s(&fp, "CONIN$", "r", stdin);
+        
+        setvbuf(stdout, NULL, _IONBF, 0);
+        setvbuf(stderr, NULL, _IONBF, 0);
+        
+        DebugLog("[Debug] Console and File Log Initialized.\n");
+      }
+
+      DebugLog("[Debug] Loading File List (patch.tsv)...\n");
       if (!LoadFileList()) {
         MessageBoxW(GetDesktopWindow(),
                     L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
                     L"错误", MB_ICONSTOP);
         return FALSE;
       }
+      
+      DebugLog("[Debug] File List Loaded. Testing patch files...\n");
       doTextPatch = TestFile(PATH_TEXT);
       doImagePatch = TestFile(PATH_IMAGE);
       doSubPatch = TestFile(PATH_SUB VD1_NAME) && TestFile(PATH_SUB VD2_NAME) &&
                    TestFile(PATH_SUB ED1_NAME) && TestFile(PATH_SUB ED2_NAME);
-      // DebugLog(0, "Configuration: Text %d, Image %d, Subtitle: %d\n",
-      //          doTextPatch, doImagePatch, doSubPatch);
+      
+      DebugLog("[Debug] Configuration: Text %d, Image %d, Subtitle: %d\n", doTextPatch, doImagePatch, doSubPatch);
 
       if (doSubPatch) {
+        DebugLog("[Debug] Loading d3d9.dll...\n");
         hDirect3D9Library = LoadLibraryA("d3d9.dll");
         if (!hDirect3D9Library) {
           MessageBoxW(GetDesktopWindow(),
@@ -616,18 +684,24 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         }
         pDirect3DCreate9 = (PFUNC_Direct3DCreate9)GetProcAddress(
             hDirect3D9Library, "Direct3DCreate9");
+        DebugLog("[Debug] Direct3DCreate9 ProcAddress: %p\n", pDirect3DCreate9);
       } else {
         hDirect3D9Library = NULL;
         pDirect3DCreate9 = NULL;
       }
+      
+      DebugLog("[Debug] Initializing Subtitles & Globals...\n");
       SubtitleInit();
       InitGlobal();
 
       DetourRestoreAfterWith();
       DetourTransactionBegin();
       DetourUpdateThread(GetCurrentThread());
+      
+      DebugLog("[Debug] Attaching global hooks...\n");
       AttachGlobal();
       if (doTextPatch) {
+        DebugLog("[Debug] Attaching Text hooks...\n");
         AttachTextSub();
         if (!VMENV::pSubMap || !VMENV::pSubMap->Exist()) {
           MessageBoxW(GetDesktopWindow(), L"文本载入失败", L"错误",
@@ -636,18 +710,24 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         }
       }
       if (doImagePatch) {
+        DebugLog("[Debug] Attaching Image hooks...\n");
         AttachImage();
       }
       if (doSubPatch) {
+        DebugLog("[Debug] Attaching Subtitle hooks...\n");
         AttachSub();
       }
+      
+      DebugLog("[Debug] Committing Detour transaction...\n");
       if (DetourTransactionCommit() != NO_ERROR) {
         MessageBoxW(GetDesktopWindow(),
                     L"无法挂载函数接口，或许您使用了错误的游戏版本", L"错误",
                     MB_OK | MB_ICONSTOP);
         return FALSE;
       }
+      DebugLog("[Debug] Initialization Complete. Launching game...\n");
       break;
+    }
     case DLL_PROCESS_DETACH:
       DetourTransactionBegin();
       DetourUpdateThread(GetCurrentThread());
@@ -665,9 +745,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       DetourTransactionCommit();
       SubtitleFini();
       FreeLibrary(hDirect3D9Library);
-#ifdef DEBUG_LOG
-      FreeConsole();
-#endif
+      
+      if (g_bDebugConsole) {
+        DebugLog("[Debug] Exiting process gracefully.\n");
+        if (g_pLogFile) {
+            fclose(g_pLogFile);
+            g_pLogFile = nullptr;
+        }
+        FreeConsole();
+      }
       break;
     default:
       break;
@@ -687,7 +773,14 @@ int CDECL StartExecutable() {
   siSakura.dwFlags = STARTF_USESHOWWINDOW;
   siSakura.wShowWindow = SW_SHOW;
 
-  bOk = DetourCreateProcessWithDllExA(PATH_EXEC, NULL, NULL, NULL, FALSE,
+  char szCmdLine[NAME_SIZE * 2];
+  sprintf_s(szCmdLine, sizeof(szCmdLine), "\"%s\"", PATH_EXEC);
+  
+  if (IsDebugEnabled()) {
+    strcat_s(szCmdLine, sizeof(szCmdLine), " --debug");
+  }
+
+  bOk = DetourCreateProcessWithDllExA(PATH_EXEC, szCmdLine, NULL, NULL, FALSE,
                                       CREATE_DEFAULT_ERROR_MODE, NULL, NULL,
                                       &siSakura, &piSakura, lpDllPath, NULL);
   if (!bOk) {
