@@ -242,7 +242,7 @@ struct VMENV {
           (pVmStr->*(VMSTR::pSetString))(pEntry->pText);
           
           if (g_bDebugConsole) {
-            DebugLog("[Debug] Text ID:%6d\n", pEntry->dwIndex);
+            DebugLog("Text ID:%6d\n", pEntry->dwIndex);
 
             MultiByteToWideChar(932, 0, pOrgText, -1, hTextBufW, 0x400);
             WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
@@ -296,7 +296,7 @@ PCSTR SakuraApp::GetStringArg(VMARG *Arg) {
 void SakuraApp::SysMovie(VMARG *Arg) {
   PCSTR pMoviePath;
   pMoviePath = GetStringArg(Arg);
-  DebugLog("[Debug] Movie Load: %s\n", pMoviePath ? pMoviePath : "NULL");
+  DebugLog("Movie Load: %s\n", pMoviePath ? pMoviePath : "NULL");
   (this->*pSysMovie)(Arg);
   if (pMoviePath) {
     PCSTR pAssSubPath;
@@ -310,7 +310,7 @@ void SakuraApp::SysMovie(VMARG *Arg) {
   }
 }
 void SakuraApp::SysMovieStop(VMARG *Arg) {
-  DebugLog("[Debug] Movie Stop\n");
+  DebugLog("Movie Stop\n");
   (this->*pSysMovieStop)(Arg);
   GameApp.DetachSub();
 }
@@ -319,7 +319,7 @@ void SakuraApp::AudioLoad(VMARG *Arg) {
   (this->*pAudioLoad)(Arg);
   if (Arg->bType == 2 && 0 <= Arg->dwData && Arg->dwData < 4) {
     pAudioPath = GetStringArg(Arg + 1);
-    DebugLog("[Debug] Audio Load: %d %s\n", Arg->dwData, pAudioPath ? pAudioPath : "NULL");
+    DebugLog("Audio Load: %d %s\n", Arg->dwData, pAudioPath ? pAudioPath : "NULL");
     if (pAudioPath) {
       if (!strcmp(pAudioPath, "BGM/073")) {  // ED1
         AudioSub[Arg->dwData] = PATH_SUB ED1_NAME;
@@ -334,7 +334,7 @@ void SakuraApp::AudioLoad(VMARG *Arg) {
 void SakuraApp::AudioPlay(VMARG *Arg) {
   (this->*pAudioPlay)(Arg);
   if (0 <= Arg->dwData && Arg->dwData < 4) {
-    DebugLog("[Debug] Audio Play: %d\n", Arg->dwData);
+    DebugLog("Audio Play: %d\n", Arg->dwData);
     if (AudioSub[Arg->dwData]) {
       dwAudioSubChannel = Arg->dwData;
       GameApp.AttachSub(new Subtitle((char *)AudioSub[Arg->dwData]));
@@ -344,7 +344,7 @@ void SakuraApp::AudioPlay(VMARG *Arg) {
 void SakuraApp::AudioStop(VMARG *Arg) {
   (this->*pAudioStop)(Arg);
   if (0 <= Arg->dwData && Arg->dwData < 4) {
-    DebugLog("[Debug] Audio Stop: %d\n", Arg->dwData);
+    DebugLog("Audio Stop: %d\n", Arg->dwData);
     if (AudioSub[Arg->dwData] && Arg->dwData == dwAudioSubChannel) {
       GameApp.DetachSub();
       dwAudioSubChannel = 4;
@@ -654,10 +654,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         setvbuf(stdout, NULL, _IONBF, 0);
         setvbuf(stderr, NULL, _IONBF, 0);
         
-        DebugLog("[Debug] Console and File Log Initialized.\n");
+        DebugLog("Console and File Log Initialized.\n");
       }
 
-      DebugLog("[Debug] Loading File List (patch.tsv)...\n");
+      DebugLog("Loading File List (patch.tsv)...\n");
       if (!LoadFileList()) {
         MessageBoxW(GetDesktopWindow(),
                     L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
@@ -665,16 +665,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         return FALSE;
       }
       
-      DebugLog("[Debug] File List Loaded. Testing patch files...\n");
+      DebugLog("File List Loaded. Testing patch files...\n");
       doTextPatch = TestFile(PATH_TEXT);
       doImagePatch = TestFile(PATH_IMAGE);
       doSubPatch = TestFile(PATH_SUB VD1_NAME) && TestFile(PATH_SUB VD2_NAME) &&
                    TestFile(PATH_SUB ED1_NAME) && TestFile(PATH_SUB ED2_NAME);
       
-      DebugLog("[Debug] Configuration: Text %d, Image %d, Subtitle: %d\n", doTextPatch, doImagePatch, doSubPatch);
+      DebugLog("Configuration: Text %d, Image %d, Subtitle: %d\n", doTextPatch, doImagePatch, doSubPatch);
 
       if (doSubPatch) {
-        DebugLog("[Debug] Loading d3d9.dll...\n");
+        DebugLog("Loading d3d9.dll...\n");
         hDirect3D9Library = LoadLibraryA("d3d9.dll");
         if (!hDirect3D9Library) {
           MessageBoxW(GetDesktopWindow(),
@@ -684,13 +684,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         }
         pDirect3DCreate9 = (PFUNC_Direct3DCreate9)GetProcAddress(
             hDirect3D9Library, "Direct3DCreate9");
-        DebugLog("[Debug] Direct3DCreate9 ProcAddress: %p\n", pDirect3DCreate9);
+        DebugLog("Direct3DCreate9 ProcAddress: %p\n", pDirect3DCreate9);
       } else {
         hDirect3D9Library = NULL;
         pDirect3DCreate9 = NULL;
       }
       
-      DebugLog("[Debug] Initializing Subtitles & Globals...\n");
+      DebugLog("Initializing Subtitles & Globals...\n");
       SubtitleInit();
       InitGlobal();
 
@@ -698,10 +698,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       DetourTransactionBegin();
       DetourUpdateThread(GetCurrentThread());
       
-      DebugLog("[Debug] Attaching global hooks...\n");
+      DebugLog("Attaching global hooks...\n");
       AttachGlobal();
       if (doTextPatch) {
-        DebugLog("[Debug] Attaching Text hooks...\n");
+        DebugLog("Attaching Text hooks...\n");
         AttachTextSub();
         if (!VMENV::pSubMap || !VMENV::pSubMap->Exist()) {
           MessageBoxW(GetDesktopWindow(), L"文本载入失败", L"错误",
@@ -710,22 +710,22 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         }
       }
       if (doImagePatch) {
-        DebugLog("[Debug] Attaching Image hooks...\n");
+        DebugLog("Attaching Image hooks...\n");
         AttachImage();
       }
       if (doSubPatch) {
-        DebugLog("[Debug] Attaching Subtitle hooks...\n");
+        DebugLog("Attaching Subtitle hooks...\n");
         AttachSub();
       }
       
-      DebugLog("[Debug] Committing Detour transaction...\n");
+      DebugLog("Committing Detour transaction...\n");
       if (DetourTransactionCommit() != NO_ERROR) {
         MessageBoxW(GetDesktopWindow(),
                     L"无法挂载函数接口，或许您使用了错误的游戏版本", L"错误",
                     MB_OK | MB_ICONSTOP);
         return FALSE;
       }
-      DebugLog("[Debug] Initialization Complete. Launching game...\n");
+      DebugLog("Initialization Complete. Launching game...\n");
       break;
     }
     case DLL_PROCESS_DETACH:
@@ -747,7 +747,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       FreeLibrary(hDirect3D9Library);
       
       if (g_bDebugConsole) {
-        DebugLog("[Debug] Exiting process gracefully.\n");
+        DebugLog("Exiting process gracefully.\n");
         if (g_pLogFile) {
             fclose(g_pLogFile);
             g_pLogFile = nullptr;
