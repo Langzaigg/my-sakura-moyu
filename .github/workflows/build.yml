@@ -1,0 +1,82 @@
+name: ci
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+jobs:
+  build-filter:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x86
+
+    - name: Build Detours
+      run: |
+        git clone https://github.com/microsoft/Detours.git
+        cd Detours
+        nmake
+        cd ..
+        mkdir filter/lib
+        copy Detours/lib.X86/detours.lib filter/lib/
+
+    - name: Download libass
+      shell: pwsh
+      run: |
+        $url = "https://github.com/ShiftMediaProject/libass/releases/download/0.17.4/libass_0.17.4_msvc15.zip"
+        Invoke-WebRequest -Uri $url -OutFile libass.zip
+        Expand-Archive -Path libass.zip -DestinationPath libass_temp
+        copy libass_temp/lib/x86/ass.lib filter/lib/
+        copy libass_temp/bin/x86/ass.dll filter/build/Release/
+
+    - name: Configure and Build Filter
+      run: |
+        cd filter
+        mkdir build
+        cd build
+        cmake -A Win32 ..
+        cmake --build . --config Release
+
+    - name: Upload Filter Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: filter
+        path: |
+          filter/build/Release/ass.dll
+          filter/build/Release/filter.dll
+          filter/build/Release/loader.exe
+          filter/build/Release/patch.tsv
+
+  build-fptool:
+    runs-on: windows-latest
+    env:
+      VCPKG_BINARY_SOURCES: "clear;nuget,GitHub,readwrite"
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup vcpkg
+      run: |
+        vcpkg install zlib:x86-windows-static libpng:x86-windows-static
+
+    - name: Configure and Build FPTool
+      run: |
+        cd fptool
+        mkdir build
+        cd build
+        cmake -A Win32 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x86-windows-static ..
+        cmake --build . --config Release
+
+    - name: Upload FPTool Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: fptool
+        path: |
+          fptool/build/Release/fptool.exe
+          fptool/build/Release/rgba2rgb.exe
+          fptool/build/Release/patch.tsv
