@@ -1,15 +1,20 @@
-﻿#include <algorithm>
+﻿#include <cstdarg>
 #include <cstdio>
 #include <cstring>
-#include <cstdarg>
 
 #include <windows.h>
 
+#include <algorithm>
 #include <detours.h>
-
 #include <shellapi.h>
 
 #pragma comment(lib, "shell32.lib")
+
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <string>
 
 #include "../../filelist.h"
 #include "common.h"
@@ -21,118 +26,117 @@
 
 std::vector<PatchEntry> defaultEntryList;
 
-bool g_bDebugConsole = false; 
-FILE* g_pLogFile = nullptr;
+bool g_bDebugConsole = false;
+FILE *g_pLogFile = nullptr;
 
-void DebugLog(const char* format, ...) {
-    if (!g_bDebugConsole) return;
-    
-    va_list args;
-    va_start(args, format);
-    
-    vprintf(format, args);
+void DebugLog(const char *format, ...) {
+  if (!g_bDebugConsole) return;
 
-    if (g_pLogFile) {
-        vfprintf(g_pLogFile, format, args);
-        fflush(g_pLogFile); 
-    }
-    
-    va_end(args);
+  va_list args;
+  va_start(args, format);
+
+  vprintf(format, args);
+
+  if (g_pLogFile) {
+    vfprintf(g_pLogFile, format, args);
+    fflush(g_pLogFile);
+  }
+
+  va_end(args);
 }
 
 void WaitBeforeExit() {
-    if (g_bDebugConsole) {
-        printf("\n程序遇到错误或请求退出。按回车键关闭控制台...\n");
-        freopen("CONIN$", "r", stdin); 
-        int c;
-        while ((c = getchar()) != '\n' && c != EOF) { }
-        getchar();
+  if (g_bDebugConsole) {
+    printf("\n程序遇到错误或请求退出。按回车键关闭控制台...\n");
+    freopen("CONIN$", "r", stdin);
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) {
     }
+    getchar();
+  }
 }
 
 bool IsDebugEnabled() {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv) {
-        LPCWSTR cmd = GetCommandLineW();
-        return (wcsstr(cmd, L"-d") || wcsstr(cmd, L"-debug") || wcsstr(cmd, L"--debug"));
+  int argc = 0;
+  LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (!argv) {
+    LPCWSTR cmd = GetCommandLineW();
+    return (wcsstr(cmd, L"-d") || wcsstr(cmd, L"-debug") ||
+            wcsstr(cmd, L"--debug"));
+  }
+
+  bool bDebug = false;
+  for (int i = 1; i < argc; ++i) {
+    if (_wcsicmp(argv[i], L"-d") == 0 || _wcsicmp(argv[i], L"-debug") == 0 ||
+        _wcsicmp(argv[i], L"--debug") == 0) {
+      bDebug = true;
+      break;
     }
-    
-    bool bDebug = false;
-    for (int i = 1; i < argc; ++i) {
-        if (_wcsicmp(argv[i], L"-d") == 0 || 
-            _wcsicmp(argv[i], L"-debug") == 0 || 
-            _wcsicmp(argv[i], L"--debug") == 0) {
-            bDebug = true;
-            break;
-        }
-    }
-    LocalFree(argv);
-    return bDebug;
+  }
+  LocalFree(argv);
+  return bDebug;
 }
 
-void GetModuleNameFromAddress(PVOID address, char* buffer, int size) {
-    HMODULE hModule = NULL;
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | 
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, 
-                           (LPCSTR)address, &hModule)) {
-        GetModuleFileNameA(hModule, buffer, size);
-    } else {
-        strcpy_s(buffer, size, "Unknown Module");
-    }
+void GetModuleNameFromAddress(PVOID address, char *buffer, int size) {
+  HMODULE hModule = NULL;
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                         (LPCSTR)address, &hModule)) {
+    GetModuleFileNameA(hModule, buffer, size);
+  } else {
+    strcpy_s(buffer, size, "Unknown Module");
+  }
 }
 
-LONG WINAPI MyUnhandledExceptionFilter(EXCEPTION_POINTERS* ExceptionInfo) {
-    char crashMsg[1024];
-    char moduleName[NAME_SIZE];
-    
-    GetModuleNameFromAddress(ExceptionInfo->ExceptionRecord->ExceptionAddress, moduleName, NAME_SIZE);
+LONG WINAPI MyUnhandledExceptionFilter(EXCEPTION_POINTERS *ExceptionInfo) {
+  char crashMsg[1024];
+  char moduleName[NAME_SIZE];
 
-    sprintf_s(crashMsg, sizeof(crashMsg),
-        "====================================================\n"
-        "CRASH REPORT\n"
-        "====================================================\n"
-        "Exception Code   : 0x%08X\n"
-        "Fault Address    : 0x%p\n"
-        "Module Name      : %s\n"
-        "====================================================\n",
-        ExceptionInfo->ExceptionRecord->ExceptionCode,
-        ExceptionInfo->ExceptionRecord->ExceptionAddress,
-        moduleName
-    );
+  GetModuleNameFromAddress(ExceptionInfo->ExceptionRecord->ExceptionAddress,
+                           moduleName, NAME_SIZE);
 
-    if (g_bDebugConsole) {
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-        
-        printf("\n%s", crashMsg);
-        
-        if (g_pLogFile) {
-            fprintf(g_pLogFile, "%s", crashMsg);
-            fflush(g_pLogFile);
-        }
+  sprintf_s(crashMsg, sizeof(crashMsg),
+            "====================================================\n"
+            "CRASH REPORT\n"
+            "====================================================\n"
+            "Exception Code   : 0x%08X\n"
+            "Fault Address    : 0x%p\n"
+            "Module Name      : %s\n"
+            "====================================================\n",
+            ExceptionInfo->ExceptionRecord->ExceptionCode,
+            ExceptionInfo->ExceptionRecord->ExceptionAddress, moduleName);
 
-        WaitBeforeExit();
-    }
-    else {
-        FILE* fCrash = nullptr;
-        fopen_s(&fCrash, "crash_dump.txt", "a+"); 
-        if (fCrash) {
-            SYSTEMTIME st;
-            GetLocalTime(&st);
-            fprintf(fCrash, "[%04d-%02d-%02d %02d:%02d:%02d] \n", 
-                st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-            fprintf(fCrash, "%s\n\n", crashMsg);
-            fclose(fCrash);
-        }
+  if (g_bDebugConsole) {
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
 
-        MessageBoxA(NULL, 
-            "程序发生了意外错误并已停止工作。\n请查看游戏目录下的 crash_dump.txt 获取详细信息。", 
-            "致命错误 (Fatal Error)", 
-            MB_ICONERROR | MB_OK);
+    printf("\n%s", crashMsg);
+
+    if (g_pLogFile) {
+      fprintf(g_pLogFile, "%s", crashMsg);
+      fflush(g_pLogFile);
     }
 
-    return EXCEPTION_EXECUTE_HANDLER;
+    WaitBeforeExit();
+  } else {
+    FILE *fCrash = nullptr;
+    fopen_s(&fCrash, "crash_dump.txt", "a+");
+    if (fCrash) {
+      SYSTEMTIME st;
+      GetLocalTime(&st);
+      fprintf(fCrash, "[%04d-%02d-%02d %02d:%02d:%02d] \n", st.wYear, st.wMonth,
+              st.wDay, st.wHour, st.wMinute, st.wSecond);
+      fprintf(fCrash, "%s\n\n", crashMsg);
+      fclose(fCrash);
+    }
+
+    MessageBoxA(NULL,
+                "程序发生了意外错误并已停止工作。\n请查看游戏目录下的 "
+                "crash_dump.txt 获取详细信息。",
+                "致命错误 (Fatal Error)", MB_ICONERROR | MB_OK);
+  }
+
+  return EXCEPTION_EXECUTE_HANDLER;
 }
 
 template <typename TYPE>
@@ -314,10 +318,10 @@ struct VMENV {
 
         if (pEntry->pText) {
           (pVmStr->*(VMSTR::pSetString))(pEntry->pText);
-          
+
           if (g_bDebugConsole) {
             bool bIsBlank = true;
-            
+
             if (pOrgText) {
               for (int i = 0; pOrgText[i] != '\0'; i++) {
                 if ((unsigned char)pOrgText[i] > 0x20) {
@@ -326,7 +330,7 @@ struct VMENV {
                 }
               }
             }
-            
+
             if (bIsBlank && pEntry->pText) {
               for (int i = 0; pEntry->pText[i] != '\0'; i++) {
                 if ((unsigned char)pEntry->pText[i] > 0x20) {
@@ -335,16 +339,18 @@ struct VMENV {
                 }
               }
             }
-            
+
             if (!bIsBlank) {
               DebugLog("Text ID:%6d\n", pEntry->dwIndex);
 
               MultiByteToWideChar(932, 0, pOrgText, -1, hTextBufW, 0x400);
-              WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
+              WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800,
+                                  NULL, NULL);
               DebugLog("%s\n", hTextBuf);
 
               MultiByteToWideChar(936, 0, pEntry->pText, -1, hTextBufW, 0x400);
-              WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800, NULL, NULL);
+              WideCharToMultiByte(65001, 0, hTextBufW, -1, hTextBuf, 0x800,
+                                  NULL, NULL);
               DebugLog("%s\n\n", hTextBuf);
             }
           }
@@ -415,7 +421,8 @@ void SakuraApp::AudioLoad(VMARG *Arg) {
   (this->*pAudioLoad)(Arg);
   if (Arg->bType == 2 && 0 <= Arg->dwData && Arg->dwData < 4) {
     pAudioPath = GetStringArg(Arg + 1);
-    DebugLog("Audio Load: %d %s\n", Arg->dwData, pAudioPath ? pAudioPath : "NULL");
+    DebugLog("Audio Load: %d %s\n", Arg->dwData,
+             pAudioPath ? pAudioPath : "NULL");
     if (pAudioPath) {
       if (!strcmp(pAudioPath, "BGM/073")) {  // ED1
         AudioSub[Arg->dwData] = PATH_SUB ED1_NAME;
@@ -463,46 +470,105 @@ void SakuraApp::TextTest(VMARG *Arg) {
 }
 
 /** Patch File List Loader **/
+#include <algorithm>
+#include <fstream>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
+
+/** Patch File List Loader **/
 bool LoadFileList() {
   char exePath[NAME_SIZE], tsvPath[NAME_SIZE];
   if (!GetModuleFileNameA(NULL, exePath, NAME_SIZE)) return false;
+
   char *sep = strrchr(exePath, '\\');
   if (!sep) sep = strrchr(exePath, '/');
-  if (sep) *(sep + 1) = '\0'; else exePath[0] = '\0';
-  if (strcpy_s(tsvPath, exePath) || strcat_s(tsvPath, "patch.tsv")) return false;
-  
-  FILE *f = fopen(tsvPath, "r");
-  if (!f) return false;
+  if (sep)
+    *(sep + 1) = '\0';
+  else
+    exePath[0] = '\0';
 
-  defaultEntryList.clear();
-  PatchEntry entry{};
-  char line[512];
-  while (fgets(line, sizeof(line), f)) {
-    if (sscanf(line, "%4s%32s%32s%d%d", entry.method,
-        entry.originalName, entry.patchName,
-        &entry.offsetX, &entry.offsetY) == 5) {
-      if (!strcmp(entry.method, "R")) {
-        entry.methodType = METHOD_REPL;
-      }
-      else if (!strcmp(entry.method, "P")) {
-        entry.methodType = METHOD_DIFF;
-      }
-      else if (!strcmp(entry.method, "A")) {
-        entry.methodType = METHOD_APPEND;
-      }
-      else {
-        continue;
-      }
-      defaultEntryList.push_back(entry);
+  if (strcpy_s(tsvPath, exePath) || strcat_s(tsvPath, "patch.tsv"))
+    return false;
+
+  std::ifstream file(tsvPath);
+  if (!file.is_open()) return false;
+
+  std::string line;
+  if (!std::getline(file, line)) return false;
+
+  if (line.size() >= 3 && (unsigned char)line[0] == 0xEF &&
+      (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
+    line = line.substr(3);
+  }
+
+  std::map<std::string, int> headerMap;
+  std::stringstream ss(line);
+  std::string cell;
+  int index = 0;
+  while (std::getline(ss, cell, '\t')) {
+    cell.erase(cell.find_last_not_of(" \n\r\t") + 1);
+    headerMap[cell] = index++;
+  }
+
+  const std::vector<std::string> required = {"originalName", "patchName",
+                                             "method", "offsetX", "offsetY"};
+  for (const auto &req : required) {
+    if (headerMap.find(req) == headerMap.end()) {
+      DebugLog("Error: Missing required header [%s] in patch.tsv\n",
+               req.c_str());
+      return false;
     }
   }
-  fclose(f);
+
+  defaultEntryList.clear();
+  while (std::getline(file, line)) {
+    if (line.empty() || line[0] == '\r' || line[0] == '\n') continue;
+
+    std::stringstream dataStream(line);
+    std::vector<std::string> row;
+    while (std::getline(dataStream, cell, '\t')) {
+      cell.erase(cell.find_last_not_of(" \n\r\t") + 1);
+      row.push_back(cell);
+    }
+
+    if (row.size() < headerMap.size()) continue;
+
+    try {
+      PatchEntry entry{};
+
+      strncpy_s(entry.method, row[headerMap["method"]].c_str(), _TRUNCATE);
+      strncpy_s(entry.originalName, row[headerMap["originalName"]].c_str(),
+                _TRUNCATE);
+      strncpy_s(entry.patchName, row[headerMap["patchName"]].c_str(),
+                _TRUNCATE);
+
+      entry.offsetX = std::stoi(row[headerMap["offsetX"]]);
+      entry.offsetY = std::stoi(row[headerMap["offsetY"]]);
+
+      if (!strcmp(entry.method, "R"))
+        entry.methodType = METHOD_REPL;
+      else if (!strcmp(entry.method, "P"))
+        entry.methodType = METHOD_DIFF;
+      else if (!strcmp(entry.method, "A"))
+        entry.methodType = METHOD_APPEND;
+      else
+        continue;
+
+      defaultEntryList.push_back(entry);
+    } catch (...) {
+      continue;
+    }
+  }
+
+  file.close();
 
   /* FileSys::Open uses binary search, list must be sorted by originalName */
   std::sort(defaultEntryList.begin(), defaultEntryList.end(),
-    [](const PatchEntry &a, const PatchEntry &b) {
-      return strcmp(a.originalName, b.originalName) < 0;
-    });
+            [](const PatchEntry &a, const PatchEntry &b) {
+              return strcmp(a.originalName, b.originalName) < 0;
+            });
 
   return true;
 }
@@ -735,42 +801,44 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
 
       if (IsDebugEnabled()) {
         g_bDebugConsole = true;
-        
+
         fopen_s(&g_pLogFile, "sakura_debug.log", "w");
 
         if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
-            AllocConsole(); 
+          AllocConsole();
         }
-        SetConsoleOutputCP(65001); 
+        SetConsoleOutputCP(65001);
         SetConsoleCP(65001);
-        
-        FILE* fp;
+
+        FILE *fp;
         freopen_s(&fp, "CONOUT$", "w", stdout);
         freopen_s(&fp, "CONOUT$", "w", stderr);
         freopen_s(&fp, "CONIN$", "r", stdin);
-        
+
         setvbuf(stdout, NULL, _IONBF, 0);
         setvbuf(stderr, NULL, _IONBF, 0);
-        
+
         DebugLog("Console and File Log Initialized.\n");
       }
 
       DebugLog("Loading File List (patch.tsv)...\n");
       if (!LoadFileList()) {
-        MessageBoxW(GetDesktopWindow(),
-                    L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
-                    L"错误", MB_ICONSTOP);
+        MessageBoxW(
+            GetDesktopWindow(),
+            L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
+            L"错误", MB_ICONSTOP);
         WaitBeforeExit();
         return FALSE;
       }
-      
+
       DebugLog("File List Loaded. Testing patch files...\n");
       doTextPatch = TestFile(PATH_TEXT);
       doImagePatch = TestFile(PATH_IMAGE);
       doSubPatch = TestFile(PATH_SUB VD1_NAME) && TestFile(PATH_SUB VD2_NAME) &&
                    TestFile(PATH_SUB ED1_NAME) && TestFile(PATH_SUB ED2_NAME);
-      
-      DebugLog("Configuration: Text %d, Image %d, Subtitle: %d\n", doTextPatch, doImagePatch, doSubPatch);
+
+      DebugLog("Configuration: Text %d, Image %d, Subtitle: %d\n", doTextPatch,
+               doImagePatch, doSubPatch);
 
       if (doSubPatch) {
         DebugLog("Loading d3d9.dll...\n");
@@ -789,7 +857,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         hDirect3D9Library = NULL;
         pDirect3DCreate9 = NULL;
       }
-      
+
       DebugLog("Initializing Subtitles & Globals...\n");
       SubtitleInit();
       InitGlobal();
@@ -797,7 +865,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       DetourRestoreAfterWith();
       DetourTransactionBegin();
       DetourUpdateThread(GetCurrentThread());
-      
+
       DebugLog("Attaching global hooks...\n");
       AttachGlobal();
       if (doTextPatch) {
@@ -818,7 +886,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         DebugLog("Attaching Subtitle hooks...\n");
         AttachSub();
       }
-      
+
       DebugLog("Committing Detour transaction...\n");
       if (DetourTransactionCommit() != NO_ERROR) {
         MessageBoxW(GetDesktopWindow(),
@@ -847,12 +915,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       DetourTransactionCommit();
       SubtitleFini();
       FreeLibrary(hDirect3D9Library);
-      
+
       if (g_bDebugConsole) {
         DebugLog("Exiting process gracefully.\n");
         if (g_pLogFile) {
-            fclose(g_pLogFile);
-            g_pLogFile = nullptr;
+          fclose(g_pLogFile);
+          g_pLogFile = nullptr;
         }
         FreeConsole();
       }
@@ -877,7 +945,7 @@ int CDECL StartExecutable() {
 
   char szCmdLine[NAME_SIZE * 2];
   sprintf_s(szCmdLine, sizeof(szCmdLine), "\"%s\"", PATH_EXEC);
-  
+
   if (IsDebugEnabled()) {
     strcat_s(szCmdLine, sizeof(szCmdLine), " --debug");
   }
