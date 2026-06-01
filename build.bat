@@ -3,8 +3,7 @@ setlocal enabledelayedexpansion
 
 set ROOT=%~dp0
 set LIB_DIR=%ROOT%filter\lib
-
-if defined VCPKG_ROOT (set VCPKG_DIR=%VCPKG_ROOT%) else if defined VCPKG_INSTALLATION_ROOT (set VCPKG_DIR=%VCPKG_INSTALLATION_ROOT%) else set VCPKG_DIR=%ROOT%build\vcpkg
+set VCPKG_DIR=%ROOT%build\vcpkg
 
 where nmake >nul 2>&1
 if errorlevel 1 (
@@ -31,12 +30,8 @@ if not exist "%VCPKG_DIR%\vcpkg.exe" (
 "%VCPKG_DIR%\vcpkg" install zlib:x86-windows-static libpng:x86-windows-static
 
 echo === Copy libs ===
-if exist "%LIB_DIR%" (
-   del /f /q "%LIB_DIR%\*.lib" 2>nul
-) else (
-   mkdir "%LIB_DIR%"
-)
-mkdir "%LIB_DIR%"
+if exist "%LIB_DIR%" del /f /q "%LIB_DIR%\*.lib" 2>nul
+mkdir "%LIB_DIR%" 2>nul
 copy /y "%VCPKG_DIR%\installed\x86-windows\lib\detours.lib" "%LIB_DIR%"
 copy /y "%VCPKG_DIR%\installed\x86-windows-static\lib\ass.lib" "%LIB_DIR%"
 
