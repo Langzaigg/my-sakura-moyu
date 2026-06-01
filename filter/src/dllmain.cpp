@@ -56,6 +56,36 @@ void WaitBeforeExit() {
   }
 }
 
+void FatalError(HookError err) {
+    const char* msg;
+    switch (err) {
+        case HookError::ErrMissingPatchTsv:
+            msg = "缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。";
+            break;
+        case HookError::ErrMissingD3d9:
+            msg = "无法载入Direct3D9，请检查是否安装了相应的运行库。";
+            break;
+        case HookError::ErrTextMapLoadFailed:
+            msg = "文本载入失败。";
+            break;
+        case HookError::ErrHookGlobal:
+        case HookError::ErrHookText:
+        case HookError::ErrHookImage:
+        case HookError::ErrHookSub:
+        case HookError::ErrDetourCommit:
+            msg = "无法挂载函数接口，可能的原因：\n"
+                  "1. 游戏版本不匹配\n"
+                  "2. 安全软件（如 360、腾讯管家等）拦截了注入\n"
+                  "   请尝试关闭安全软件或将游戏目录加入白名单。";
+            break;
+        default:
+            msg = "发生了未知错误。";
+            break;
+    }
+    MessageBoxA(GetDesktopWindow(), msg, "错误", MB_ICONSTOP | MB_OK);
+    WaitBeforeExit();
+}
+
 bool IsDebugEnabled() {
   int argc = 0;
   LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -478,9 +508,10 @@ void SakuraApp::TextTest(VMARG *Arg) {
 #include <vector>
 
 /** Patch File List Loader **/
-bool LoadFileList() {
+HookError LoadFileList() {
   char exePath[NAME_SIZE], tsvPath[NAME_SIZE];
-  if (!GetModuleFileNameA(NULL, exePath, NAME_SIZE)) return false;
+  if (!GetModuleFileNameA(NULL, exePath, NAME_SIZE))
+    return HookError::ErrMissingPatchTsv;
 
   char *sep = strrchr(exePath, '\\');
   if (!sep) sep = strrchr(exePath, '/');
@@ -490,13 +521,13 @@ bool LoadFileList() {
     exePath[0] = '\0';
 
   if (strcpy_s(tsvPath, exePath) || strcat_s(tsvPath, "patch.tsv"))
-    return false;
+    return HookError::ErrMissingPatchTsv;
 
   std::ifstream file(tsvPath);
-  if (!file.is_open()) return false;
+  if (!file.is_open()) return HookError::ErrMissingPatchTsv;
 
   std::string line;
-  if (!std::getline(file, line)) return false;
+  if (!std::getline(file, line)) return HookError::ErrMissingPatchTsv;
 
   if (line.size() >= 3 && (unsigned char)line[0] == 0xEF &&
       (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) {
@@ -518,12 +549,14 @@ bool LoadFileList() {
     if (headerMap.find(req) == headerMap.end()) {
       DebugLog("Error: Missing required header [%s] in patch.tsv\n",
                req.c_str());
-      return false;
+      return HookError::ErrMissingPatchTsv;
     }
   }
 
   defaultEntryList.clear();
+  int lineNum = 2;
   while (std::getline(file, line)) {
+    ++lineNum;
     if (line.empty() || line[0] == '\r' || line[0] == '\n') continue;
 
     std::stringstream dataStream(line);
@@ -558,6 +591,7 @@ bool LoadFileList() {
 
       defaultEntryList.push_back(entry);
     } catch (...) {
+      DebugLog("Warning: Skipping malformed line %d in patch.tsv\n", lineNum);
       continue;
     }
   }
@@ -570,7 +604,7 @@ bool LoadFileList() {
               return strcmp(a.originalName, b.originalName) < 0;
             });
 
-  return true;
+  return HookError::Success;
 }
 
 /** Global Environment **/
@@ -632,41 +666,26 @@ void InitGlobal() {
   FromPtr(SakuraApp::pAudioPlay, (PVOID)0x439ce0);
   FromPtr(SakuraApp::pAudioStop, (PVOID)0x439dc0);
   FromPtr(SakuraApp::pTextTest, (PVOID)0x437a60);
+  return;
 }
 
 int WINAPI MessageBoxA_(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption,
                         UINT uType) {
-  int Size;
-  LPWSTR lpTextW, lpCaptionW;
-  do {
-    Size = MultiByteToWideChar(932, 0, lpText, -1, NULL, 0);
-    if (!Size) {
-      break;
-    }
-    lpTextW = new WCHAR[Size];
-    Size = MultiByteToWideChar(932, 0, lpText, -1, lpTextW, Size);
-    if (!Size) {
-      delete[] lpTextW;
-      break;
-    }
-    Size = MultiByteToWideChar(932, 0, lpCaption, -1, NULL, 0);
-    if (!Size) {
-      break;
-    }
-    lpCaptionW = new WCHAR[Size];
-    Size = MultiByteToWideChar(932, 0, lpCaption, -1, lpCaptionW, Size);
-    if (!Size) {
-      delete[] lpCaptionW;
-      delete[] lpTextW;
-      break;
-    }
-    int Result;
-    Result = MessageBoxW(hWnd, lpTextW, lpCaptionW, uType);
-    delete[] lpCaptionW;
-    delete[] lpTextW;
-    return Result;
-  } while (false);
-  return (*pMessageBoxA)(hWnd, lpText, lpCaption, uType);
+  int size = MultiByteToWideChar(932, 0, lpText, -1, NULL, 0);
+  if (!size) return (*pMessageBoxA)(hWnd, lpText, lpCaption, uType);
+
+  std::vector<WCHAR> textW(size);
+  size = MultiByteToWideChar(932, 0, lpText, -1, textW.data(), size);
+  if (!size) return (*pMessageBoxA)(hWnd, lpText, lpCaption, uType);
+
+  size = MultiByteToWideChar(932, 0, lpCaption, -1, NULL, 0);
+  if (!size) return (*pMessageBoxA)(hWnd, lpText, lpCaption, uType);
+
+  std::vector<WCHAR> captionW(size);
+  size = MultiByteToWideChar(932, 0, lpCaption, -1, captionW.data(), size);
+  if (!size) return (*pMessageBoxA)(hWnd, lpText, lpCaption, uType);
+
+  return MessageBoxW(hWnd, textW.data(), captionW.data(), uType);
 }
 
 HWND WINAPI CreateWindowExA_(DWORD dwExStyle, LPCSTR lpClassName,
@@ -710,12 +729,20 @@ int IsLeadByte(UINT Char) {
   }
 }
 
-void AttachGlobal() {
-  DetourAttach(&((PVOID &)pMessageBoxA), ToPtr(&MessageBoxA_));
-  DetourAttach(&((PVOID &)pCreateWindowExA), ToPtr(&CreateWindowExA_));
-  DetourAttach(&((PVOID &)pStrcmpIA), ToPtr(&StrcmpIA_));
-  DetourAttach(&((PVOID &)pIsLeadByte), ToPtr(&IsLeadByte));
-  DetourAttach(&((PVOID &)HEAPBLOCK::pReadFile), ToPtr(&HEAPBLOCK::ReadFile));
+HookError AttachGlobal() {
+  if (DetourAttach(&((PVOID &)pMessageBoxA), ToPtr(&MessageBoxA_)) != NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pCreateWindowExA), ToPtr(&CreateWindowExA_)) !=
+      NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pStrcmpIA), ToPtr(&StrcmpIA_)) != NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pIsLeadByte), ToPtr(&IsLeadByte)) != NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)HEAPBLOCK::pReadFile),
+                   ToPtr(&HEAPBLOCK::ReadFile)) != NO_ERROR)
+    return HookError::ErrHookGlobal;
+  return HookError::Success;
 }
 void DetachGlobal() {
   DetourDetach(&((PVOID &)HEAPBLOCK::pReadFile), ToPtr(&HEAPBLOCK::ReadFile));
@@ -726,13 +753,21 @@ void DetachGlobal() {
 }
 
 static DWORD dwCharSet, pFaceName;
-void AttachTextSub() {
+HookError AttachTextSub() {
   VMENV::pSubMap = new StringMap(L"" PATH_TEXT);
+  if (!VMENV::pSubMap || !VMENV::pSubMap->Exist())
+    return HookError::ErrTextMapLoadFailed;
+
   dwCharSet = PatchDoubleWord((PVOID)0x444364, GB2312_CHARSET);
   PatchDoubleWord((PVOID)0x42d22e, GB2312_CHARSET);
   pFaceName = PatchDoubleWord((PVOID)0x443b3a, (DWORD) "CHINESE_GB2312");
-  DetourAttach(&((PVOID &)VMENV::pLoadText), ToPtr(&VMENV::LoadText));
-  DetourAttach(&((PVOID &)SakuraApp::pTextTest), ToPtr(&SakuraApp::TextTest));
+  if (DetourAttach(&((PVOID &)VMENV::pLoadText), ToPtr(&VMENV::LoadText)) !=
+      NO_ERROR)
+    return HookError::ErrHookText;
+  if (DetourAttach(&((PVOID &)SakuraApp::pTextTest),
+                   ToPtr(&SakuraApp::TextTest)) != NO_ERROR)
+    return HookError::ErrHookText;
+  return HookError::Success;
 }
 void DetachTextSub() {
   PatchDoubleWord((PVOID)0x443b3a, pFaceName);
@@ -740,25 +775,44 @@ void DetachTextSub() {
   PatchDoubleWord((PVOID)0x444364, dwCharSet);
   DetourDetach(&((PVOID &)SakuraApp::pTextTest), ToPtr(&SakuraApp::TextTest));
   DetourDetach(&((PVOID &)VMENV::pLoadText), ToPtr(&VMENV::LoadText));
-  delete VMENV::pSubMap;
-  VMENV::pSubMap = NULL;
+  if (VMENV::pSubMap) {
+    delete VMENV::pSubMap;
+    VMENV::pSubMap = NULL;
+  }
 }
 
-void AttachImage() {
-  DetourAttach(&((PVOID &)FileSys::pOpen), ToPtr(&FileSys::Open));
+HookError AttachImage() {
+  if (DetourAttach(&((PVOID &)FileSys::pOpen), ToPtr(&FileSys::Open)) !=
+      NO_ERROR)
+    return HookError::ErrHookImage;
+  return HookError::Success;
 }
 void DetachImage() {
   DetourDetach(&((PVOID &)FileSys::pOpen), ToPtr(&FileSys::Open));
 }
 
-void AttachSub() {
-  DetourAttach(&((PVOID &)pDirect3DCreate9), ToPtr(&OverlayD3DCreate));
-  DetourAttach(&((PVOID &)SakuraApp::pSysMovie), ToPtr(&SakuraApp::SysMovie));
-  DetourAttach(&((PVOID &)SakuraApp::pSysMovieStop),
-               ToPtr(&SakuraApp::SysMovieStop));
-  DetourAttach(&((PVOID &)SakuraApp::pAudioLoad), ToPtr(&SakuraApp::AudioLoad));
-  DetourAttach(&((PVOID &)SakuraApp::pAudioPlay), ToPtr(&SakuraApp::AudioPlay));
-  DetourAttach(&((PVOID &)SakuraApp::pAudioStop), ToPtr(&SakuraApp::AudioStop));
+HookError AttachSub() {
+  if (!pDirect3DCreate9) return HookError::ErrMissingD3d9;
+
+  if (DetourAttach(&((PVOID &)pDirect3DCreate9), ToPtr(&OverlayD3DCreate)) !=
+      NO_ERROR)
+    return HookError::ErrHookSub;
+  if (DetourAttach(&((PVOID &)SakuraApp::pSysMovie),
+                   ToPtr(&SakuraApp::SysMovie)) != NO_ERROR)
+    return HookError::ErrHookSub;
+  if (DetourAttach(&((PVOID &)SakuraApp::pSysMovieStop),
+                   ToPtr(&SakuraApp::SysMovieStop)) != NO_ERROR)
+    return HookError::ErrHookSub;
+  if (DetourAttach(&((PVOID &)SakuraApp::pAudioLoad),
+                   ToPtr(&SakuraApp::AudioLoad)) != NO_ERROR)
+    return HookError::ErrHookSub;
+  if (DetourAttach(&((PVOID &)SakuraApp::pAudioPlay),
+                   ToPtr(&SakuraApp::AudioPlay)) != NO_ERROR)
+    return HookError::ErrHookSub;
+  if (DetourAttach(&((PVOID &)SakuraApp::pAudioStop),
+                   ToPtr(&SakuraApp::AudioStop)) != NO_ERROR)
+    return HookError::ErrHookSub;
+  return HookError::Success;
 }
 void DetachSub() {
   DetourDetach(&((PVOID &)SakuraApp::pAudioStop), ToPtr(&SakuraApp::AudioStop));
@@ -780,6 +834,27 @@ BOOL TestFile(LPCSTR lpPath) {
     return TRUE;
   }
   return FALSE;
+}
+
+static HookError DoAttachAll() {
+  HookError err;
+
+  err = AttachGlobal();
+  if (err != HookError::Success) return err;
+
+  if (doTextPatch) {
+    err = AttachTextSub();
+    if (err != HookError::Success) return err;
+  }
+  if (doImagePatch) {
+    err = AttachImage();
+    if (err != HookError::Success) return err;
+  }
+  if (doSubPatch) {
+    err = AttachSub();
+    if (err != HookError::Success) return err;
+  }
+  return HookError::Success;
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
@@ -822,13 +897,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       }
 
       DebugLog("Loading File List (patch.tsv)...\n");
-      if (!LoadFileList()) {
-        MessageBoxW(
-            GetDesktopWindow(),
-            L"缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。",
-            L"错误", MB_ICONSTOP);
-        WaitBeforeExit();
-        return FALSE;
+      {
+        HookError err = LoadFileList();
+        if (err != HookError::Success) {
+          FatalError(err);
+          return FALSE;
+        }
       }
 
       DebugLog("File List Loaded. Testing patch files...\n");
@@ -844,10 +918,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
         DebugLog("Loading d3d9.dll...\n");
         hDirect3D9Library = LoadLibraryA("d3d9.dll");
         if (!hDirect3D9Library) {
-          MessageBoxW(GetDesktopWindow(),
-                      L"无法载入Direct3D9，请检查是否安装了相应的运行库",
-                      L"错误", MB_ICONSTOP);
-          WaitBeforeExit();
+          FatalError(HookError::ErrMissingD3d9);
           return FALSE;
         }
         pDirect3DCreate9 = (PFUNC_Direct3DCreate9)GetProcAddress(
@@ -866,33 +937,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       DetourTransactionBegin();
       DetourUpdateThread(GetCurrentThread());
 
-      DebugLog("Attaching global hooks...\n");
-      AttachGlobal();
-      if (doTextPatch) {
-        DebugLog("Attaching Text hooks...\n");
-        AttachTextSub();
-        if (!VMENV::pSubMap || !VMENV::pSubMap->Exist()) {
-          MessageBoxW(GetDesktopWindow(), L"文本载入失败", L"错误",
-                      MB_ICONSTOP);
-          WaitBeforeExit();
+      DebugLog("Attaching hooks...\n");
+      {
+        HookError err = DoAttachAll();
+        if (err != HookError::Success) {
+          DetourTransactionAbort();
+          FatalError(err);
           return FALSE;
         }
-      }
-      if (doImagePatch) {
-        DebugLog("Attaching Image hooks...\n");
-        AttachImage();
-      }
-      if (doSubPatch) {
-        DebugLog("Attaching Subtitle hooks...\n");
-        AttachSub();
       }
 
       DebugLog("Committing Detour transaction...\n");
       if (DetourTransactionCommit() != NO_ERROR) {
-        MessageBoxW(GetDesktopWindow(),
-                    L"无法挂载函数接口，或许您使用了错误的游戏版本", L"错误",
-                    MB_OK | MB_ICONSTOP);
-        WaitBeforeExit();
+        FatalError(HookError::ErrDetourCommit);
         return FALSE;
       }
       DebugLog("Initialization Complete. Launching game...\n");
@@ -914,7 +971,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       DetachGlobal();
       DetourTransactionCommit();
       SubtitleFini();
-      FreeLibrary(hDirect3D9Library);
+      if (hDirect3D9Library) {
+        FreeLibrary(hDirect3D9Library);
+      }
 
       if (g_bDebugConsole) {
         DebugLog("Exiting process gracefully.\n");
@@ -932,10 +991,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
 }
 
 EXTERN_C
-int CDECL StartExecutable() {
+HookError CDECL StartExecutable() {
   STARTUPINFOA siSakura;
   PROCESS_INFORMATION piSakura;
-  BOOL bOk;
 
   ZeroMemory(&siSakura, sizeof(siSakura));
   ZeroMemory(&piSakura, sizeof(piSakura));
@@ -950,17 +1008,14 @@ int CDECL StartExecutable() {
     strcat_s(szCmdLine, sizeof(szCmdLine), " --debug");
   }
 
-  bOk = DetourCreateProcessWithDllExA(PATH_EXEC, szCmdLine, NULL, NULL, FALSE,
-                                      CREATE_DEFAULT_ERROR_MODE, NULL, NULL,
-                                      &siSakura, &piSakura, lpDllPath, NULL);
-  if (!bOk) {
-    MessageBoxW(GetDesktopWindow(), L"可执行文件加载失败", L"错误",
-                MB_ICONSTOP);
+  if (!DetourCreateProcessWithDllExA(PATH_EXEC, szCmdLine, NULL, NULL, FALSE,
+                                     CREATE_DEFAULT_ERROR_MODE, NULL, NULL,
+                                     &siSakura, &piSakura, lpDllPath, NULL)) {
     CloseHandle(&siSakura);
     CloseHandle(&piSakura);
-    return 1;
+    return HookError::ErrProcessCreate;
   }
   CloseHandle(&siSakura);
   CloseHandle(&piSakura);
-  return 0;
+  return HookError::Success;
 }
