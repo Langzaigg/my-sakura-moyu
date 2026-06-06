@@ -5,15 +5,15 @@ set ROOT=%~dp0
 set LIB_DIR=%ROOT%filter\lib
 set VCPKG_DIR=%ROOT%build\vcpkg
 
-where nmake >nul 2>&1
-if errorlevel 1 (
-    for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath 2^>nul') do set VS_DIR=%%i
-    if not defined VS_DIR (
-        echo [ERROR] nmake not found ^& vswhere failed. Run from "x86 Native Tools Command Prompt for VS".
-        exit /b 1
-    )
-    call "%VS_DIR%\VC\Auxiliary\Build\vcvarsall.bat" x86
-)
+@REM where nmake >nul 2>&1
+@REM if errorlevel 1 (
+@REM     for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath 2^>nul') do set VS_DIR=%%i
+@REM     if not defined VS_DIR (
+@REM         echo [ERROR] nmake not found ^& vswhere failed. Run from "x86 Native Tools Command Prompt for VS".
+@REM         exit /b 1
+@REM     )
+@REM     call "%VS_DIR%\VC\Auxiliary\Build\vcvarsall.bat" x86
+@REM )
 
 echo === vcpkg setup + install deps ===
 set OVERLAY=%ROOT%vcpkg_overlay\ports

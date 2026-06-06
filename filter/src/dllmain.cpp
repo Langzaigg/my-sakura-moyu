@@ -18,6 +18,7 @@
 
 #include "../../filelist.h"
 #include "common.h"
+#include "fvp/reader.h"
 #include "overlay/i_d3d9.h"
 #include "strsub.h"
 #include "subtitle.h"
@@ -35,7 +36,10 @@ void DebugLog(const char *format, ...) {
   va_list args;
   va_start(args, format);
 
-  vprintf(format, args);
+  va_list args1;
+  va_copy(args1, args);
+  vprintf(format, args1);
+  va_end(args1);
 
   if (g_pLogFile) {
     vfprintf(g_pLogFile, format, args);
@@ -57,33 +61,43 @@ void WaitBeforeExit() {
 }
 
 void FatalError(HookError err) {
-    const char* msg;
-    switch (err) {
-        case HookError::ErrMissingPatchTsv:
-            msg = "缺少 patch.tsv 配置清单文件！\n请确保程序同目录下存在该文件。";
-            break;
-        case HookError::ErrMissingD3d9:
-            msg = "无法载入Direct3D9，请检查是否安装了相应的运行库。";
-            break;
-        case HookError::ErrTextMapLoadFailed:
-            msg = "文本载入失败。";
-            break;
-        case HookError::ErrHookGlobal:
-        case HookError::ErrHookText:
-        case HookError::ErrHookImage:
-        case HookError::ErrHookSub:
-        case HookError::ErrDetourCommit:
-            msg = "无法挂载函数接口，可能的原因：\n"
-                  "1. 游戏版本不匹配\n"
-                  "2. 安全软件（如 360、腾讯管家等）拦截了注入\n"
-                  "   请尝试关闭安全软件或将游戏目录加入白名单。";
-            break;
-        default:
-            msg = "发生了未知错误。";
-            break;
-    }
-    MessageBoxA(GetDesktopWindow(), msg, "错误", MB_ICONSTOP | MB_OK);
-    WaitBeforeExit();
+  const char *msg;
+  switch (err) {
+    case HookError::ErrMissingD3d9:
+      msg = "无法载入Direct3D9，请检查是否安装了相应的运行库。";
+      break;
+    case HookError::ErrTextMapLoadFailed:
+      msg = "文本载入失败。";
+      break;
+    case HookError::ErrHookGlobal:
+    case HookError::ErrHookText:
+    case HookError::ErrHookImage:
+    case HookError::ErrHookSub:
+    case HookError::ErrDetourCommit:
+      msg =
+          "无法挂载函数接口，可能的原因：\n"
+          "1. 游戏版本不匹配\n"
+          "2. 安全软件（如 360、腾讯管家等）拦截了注入\n"
+          "   请尝试关闭安全软件或将游戏目录加入白名单。";
+      break;
+    default:
+      msg = "发生了未知错误。";
+      break;
+  }
+  MessageBoxA(GetDesktopWindow(), msg, "错误", MB_ICONSTOP | MB_OK);
+  WaitBeforeExit();
+}
+
+void WarnError(HookError err) {
+  const char *msg;
+  switch (err) {
+    case HookError::ErrMissingPatchTsv:
+      msg = "缺少 patch.tsv 配置清单文件！\n程序将以无图像补丁模式运行。";
+      break;
+    default:
+      return;
+  }
+  MessageBoxA(GetDesktopWindow(), msg, "提示", MB_ICONWARNING | MB_OK);
 }
 
 bool IsDebugEnabled() {
@@ -185,6 +199,8 @@ int (*StringMap::pInflate)(z_streamp, int);
 int (*StringMap::pInflateEnd)(z_streamp);
 
 /** Executable Structures **/
+BOOL TestFile(LPCSTR lpPath);
+
 class FileSys {
  public:
   typedef void (FileSys::*PFUNC_Open)(PCSTR pPath);
@@ -204,6 +220,7 @@ class FileSys {
       } else if (C > 0) {
         L = M + 1;
       } else {
+        if (!defaultEntryList[M].valid) break;
         if (strcpy_s(pNewPath, "patch/") ||
             strcat_s(pNewPath, defaultEntryList[M].patchName)) {
           break;
@@ -263,6 +280,8 @@ SakuraApp::FUNC_NATIVE SakuraApp::pAudioPlay = NULL;
 SakuraApp::FUNC_NATIVE SakuraApp::pAudioStop = NULL;
 SakuraApp::FUNC_NATIVE SakuraApp::pTextTest = NULL;
 
+extern BOOL doImagePatch;
+
 struct HEAPBLOCK {
   static const size_t sVmSize0 = 35, sVmSize1 = sVmSize0 + 5;
   static const DWORD dwVmStart = 0x74daa;
@@ -278,7 +297,7 @@ struct HEAPBLOCK {
   static PFUNC_ReadFile pReadFile;
   void ReadFile(PCSTR pPath) {
     (this->*pReadFile)(pPath);
-    if (!strcmp(pPath, "Sakura.hcb")) {
+    if (!strcmp(pPath, "Sakura.hcb") && doImagePatch) {
       DWORD dwScriptSize;
       dwScriptSize = dwSize;
       (this->*pSetSize)(dwSize + sVmSize1);
@@ -498,14 +517,6 @@ void SakuraApp::TextTest(VMARG *Arg) {
     (this->*pTextTest)(Arg);
   }
 }
-
-/** Patch File List Loader **/
-#include <algorithm>
-#include <fstream>
-#include <map>
-#include <sstream>
-#include <string>
-#include <vector>
 
 /** Patch File List Loader **/
 HookError LoadFileList() {
@@ -900,14 +911,53 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       {
         HookError err = LoadFileList();
         if (err != HookError::Success) {
-          FatalError(err);
-          return FALSE;
+          WarnError(err);
+          DebugLog("Warning: patch.tsv not loaded (%d)\n", (int)err);
         }
       }
 
-      DebugLog("File List Loaded. Testing patch files...\n");
+      DebugLog("Validating patch resources...\n");
+      {
+        int validCount = 0;
+
+        for (auto &entry : defaultEntryList) {
+          entry.valid = false;
+          char patchPath[NAME_SIZE];
+          if (strcpy_s(patchPath, "patch/") ||
+              strcat_s(patchPath, entry.patchName))
+            continue;
+          if (TestFile(patchPath)) {
+            entry.valid = true;
+            validCount++;
+          }
+        }
+
+        FvpReader reader;
+        if (TestFile(PATH_IMAGE)) {
+          if (reader.open(PATH_IMAGE) == 0) {
+            for (auto &entry : defaultEntryList) {
+              if (!entry.valid && reader.hasFile(entry.patchName)) {
+                entry.valid = true;
+                validCount++;
+              }
+            }
+            reader.close();
+          }
+        }
+
+        for (const auto &entry : defaultEntryList) {
+          if (!entry.valid) {
+            DebugLog("Warning: patch resource missing for %s (patch/%s)\n",
+                     entry.originalName, entry.patchName);
+          }
+        }
+
+        DebugLog("Patch resource validation: %d/%d valid\n", validCount,
+                 (int)defaultEntryList.size());
+        doImagePatch = (validCount > 0);
+      }
+
       doTextPatch = TestFile(PATH_TEXT);
-      doImagePatch = TestFile(PATH_IMAGE);
       doSubPatch = TestFile(PATH_SUB VD1_NAME) && TestFile(PATH_SUB VD2_NAME) &&
                    TestFile(PATH_SUB ED1_NAME) && TestFile(PATH_SUB ED2_NAME);
 

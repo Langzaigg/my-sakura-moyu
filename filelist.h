@@ -15,6 +15,7 @@ struct PatchEntry {
   char originalName[33];
   char patchName[33];
   int offsetX, offsetY;
+  bool valid;
 #ifdef FPTOOL
   FvpPackage::FileEntry *fileEntryPtr;
 #else

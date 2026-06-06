@@ -6,8 +6,8 @@ set(CMAKE_CXX_STANDARD 11)
 include_directories(include)
 link_directories(lib)
 
-add_library(filter SHARED src/dllmain.cpp src/resource.h src/patch.rc
-        src/overlay/i_d3d9device.cpp src/overlay/i_d3d9.cpp src/subtitle.cpp include/subtitle.h include/strsub.h include/common.h)
+add_library(filter SHARED src/dllmain.cpp src/fvp_reader.cpp src/resource.h src/patch.rc
+        src/overlay/i_d3d9device.cpp src/overlay/i_d3d9.cpp src/subtitle.cpp include/subtitle.h include/strsub.h include/fvp/reader.h include/common.h)
 add_executable(loader src/load.c src/load.rc)
 target_link_libraries(filter detours d3d9 dxguid ass)
 target_link_libraries(loader filter)
