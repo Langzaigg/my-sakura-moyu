@@ -623,6 +623,7 @@ HMODULE hSakuraExe;
 BOOL doTextPatch, doImagePatch, doSubPatch;
 CHAR lpDllPath[NAME_SIZE];
 HMODULE hDirect3D9Library;
+BOOL g_hasSaveDir;
 
 /** Global Functions **/
 typedef int(WINAPI *PFUNC_MessageBoxA)(HWND hWnd, LPCSTR lpText,
@@ -635,11 +636,23 @@ typedef HWND(WINAPI *PFUNC_CreateWindowExA)(DWORD dwExStyle, LPCSTR lpClassName,
                                             LPVOID lpParam);
 typedef INT(WINAPI *PFUNC_StrcmpIA)(LPCSTR lpString1, LPCSTR lpString2);
 typedef INT(CDECL *PFUNC_IsLeadByte)(UINT Char);
+typedef HANDLE(WINAPI *PFUNC_CreateFileA)(LPCSTR, DWORD, DWORD,
+                                         LPSECURITY_ATTRIBUTES, DWORD, DWORD,
+                                         HANDLE);
+typedef HANDLE(WINAPI *PFUNC_CreateFileW)(LPCWSTR, DWORD, DWORD,
+                                          LPSECURITY_ATTRIBUTES, DWORD, DWORD,
+                                          HANDLE);
+typedef BOOL(WINAPI *PFUNC_CreateDirectoryA)(LPCSTR, LPSECURITY_ATTRIBUTES);
+typedef BOOL(WINAPI *PFUNC_CreateDirectoryW)(LPCWSTR, LPSECURITY_ATTRIBUTES);
 
 PFUNC_MessageBoxA pMessageBoxA;
 PFUNC_CreateWindowExA pCreateWindowExA;
 PFUNC_StrcmpIA pStrcmpIA;
 PFUNC_IsLeadByte pIsLeadByte;
+PFUNC_CreateFileA pCreateFileA;
+PFUNC_CreateFileW pCreateFileW;
+PFUNC_CreateDirectoryA pCreateDirectoryA;
+PFUNC_CreateDirectoryW pCreateDirectoryW;
 
 DWORD PatchDoubleWord(PVOID pAddr, DWORD dwValue) {
   DWORD dwOldProtect, dwOldValue;
@@ -660,6 +673,12 @@ void InitGlobal() {
       (PFUNC_CreateWindowExA)GetProcAddress(hUser32, "CreateWindowExA");
   pStrcmpIA = (PFUNC_StrcmpIA)GetProcAddress(hKernel32, "lstrcmpiA");
   pIsLeadByte = (PFUNC_IsLeadByte)0x44844f;
+  pCreateFileA = (PFUNC_CreateFileA)GetProcAddress(hKernel32, "CreateFileA");
+  pCreateFileW = (PFUNC_CreateFileW)GetProcAddress(hKernel32, "CreateFileW");
+  pCreateDirectoryA =
+      (PFUNC_CreateDirectoryA)GetProcAddress(hKernel32, "CreateDirectoryA");
+  pCreateDirectoryW =
+      (PFUNC_CreateDirectoryW)GetProcAddress(hKernel32, "CreateDirectoryW");
   FromPtr(HEAPBLOCK::pReadFile, (PVOID)0x4344c0);
   FromPtr(HEAPBLOCK::pSetSize, (PVOID)0x434060);
 
@@ -740,6 +759,132 @@ int IsLeadByte(UINT Char) {
   }
 }
 
+static BOOL IsSavePath(LPCWSTR lpPath) {
+  if (!lpPath || !g_hasSaveDir) return FALSE;
+  return wcsstr(lpPath,
+      L"FAVORITE\\\u3055\u304F\u3089\u3001\u3082\u3086\u3002\\save") != NULL ||
+      wcsstr(lpPath,
+      L"FAVORITE/\u3055\u304F\u3089\u3001\u3082\u3086\u3002/save") != NULL;
+}
+
+static void RewriteSavePath(LPCWSTR lpSrc, LPWSTR lpDst, DWORD cchDst) {
+  static const wchar_t patFile[] =
+      L"FAVORITE\\\u3055\u304F\u3089\u3001\u3082\u3086\u3002\\save\\";
+  static const wchar_t patDir[] =
+      L"FAVORITE\\\u3055\u304F\u3089\u3001\u3082\u3086\u3002\\save";
+  static const int patFileLen = (sizeof(patFile) / sizeof(wchar_t)) - 1;
+  static const wchar_t patFile2[] =
+      L"FAVORITE/\u3055\u304F\u3089\u3001\u3082\u3086\u3002/save/";
+  static const wchar_t patDir2[] =
+      L"FAVORITE/\u3055\u304F\u3089\u3001\u3082\u3086\u3002/save";
+
+  LPCWSTR pos = wcsstr(lpSrc, patFile);
+  if (!pos) pos = wcsstr(lpSrc, patFile2);
+  if (pos) {
+    wcscpy_s(lpDst, cchDst, L"save\\");
+    wcscat_s(lpDst, cchDst, pos + patFileLen);
+    return;
+  }
+
+  pos = wcsstr(lpSrc, patDir);
+  if (!pos) pos = wcsstr(lpSrc, patDir2);
+  if (pos) {
+    wcscpy_s(lpDst, cchDst, L"save");
+    return;
+  }
+
+  wcscpy_s(lpDst, cchDst, lpSrc);
+}
+
+static void EnsureParentDir(LPCWSTR lpPath) {
+  WCHAR dir[NAME_SIZE];
+  wcscpy_s(dir, lpPath);
+  wchar_t *sep = wcsrchr(dir, L'\\');
+  if (!sep) sep = wcsrchr(dir, L'/');
+  if (!sep) return;
+  *sep = L'\0';
+  EnsureParentDir(dir);
+  pCreateDirectoryW(dir, NULL);
+}
+
+HANDLE WINAPI CreateFileW_(LPCWSTR lpFileName, DWORD dwDesiredAccess,
+                           DWORD dwShareMode,
+                           LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+                           DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes,
+                           HANDLE hTemplateFile) {
+  if (IsSavePath(lpFileName)) {
+    WCHAR newPath[NAME_SIZE];
+    RewriteSavePath(lpFileName, newPath, NAME_SIZE);
+    if (dwCreationDisposition == CREATE_NEW ||
+        dwCreationDisposition == CREATE_ALWAYS ||
+        dwCreationDisposition == OPEN_ALWAYS) {
+      EnsureParentDir(newPath);
+    }
+    return pCreateFileW(newPath, dwDesiredAccess, dwShareMode,
+                        lpSecurityAttributes, dwCreationDisposition,
+                        dwFlagsAndAttributes, hTemplateFile);
+  }
+  return pCreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
+                      lpSecurityAttributes, dwCreationDisposition,
+                      dwFlagsAndAttributes, hTemplateFile);
+}
+
+BOOL WINAPI CreateDirectoryW_(LPCWSTR lpPathName,
+                              LPSECURITY_ATTRIBUTES lpSecurityAttributes) {
+  if (IsSavePath(lpPathName)) {
+    WCHAR newPath[NAME_SIZE];
+    RewriteSavePath(lpPathName, newPath, NAME_SIZE);
+    EnsureParentDir(newPath);
+    return pCreateDirectoryW(newPath, lpSecurityAttributes);
+  }
+  return pCreateDirectoryW(lpPathName, lpSecurityAttributes);
+}
+
+static BOOL ACPathToWide(LPCSTR lpSrc, LPWSTR lpDst, DWORD cchDst) {
+  if (!lpSrc) return FALSE;
+  static const UINT cpList[] = {CP_ACP, 932, 936};
+  for (int i = 0; i < 3; i++) {
+    if (MultiByteToWideChar(cpList[i], 0, lpSrc, -1, lpDst, (int)cchDst) > 0)
+      return TRUE;
+  }
+  return FALSE;
+}
+
+HANDLE WINAPI CreateFileA_(LPCSTR lpFileName, DWORD dwDesiredAccess,
+                           DWORD dwShareMode,
+                           LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+                           DWORD dwCreationDisposition,
+                           DWORD dwFlagsAndAttributes, HANDLE hTemplateFile) {
+  WCHAR pathW[NAME_SIZE];
+  if (ACPathToWide(lpFileName, pathW, NAME_SIZE) && IsSavePath(pathW)) {
+    WCHAR newPath[NAME_SIZE];
+    RewriteSavePath(pathW, newPath, NAME_SIZE);
+    if (dwCreationDisposition == CREATE_NEW ||
+        dwCreationDisposition == CREATE_ALWAYS ||
+        dwCreationDisposition == OPEN_ALWAYS) {
+      EnsureParentDir(newPath);
+    }
+    return pCreateFileW(newPath, dwDesiredAccess, dwShareMode,
+                        lpSecurityAttributes, dwCreationDisposition,
+                        dwFlagsAndAttributes, hTemplateFile);
+  }
+  return pCreateFileA(lpFileName, dwDesiredAccess, dwShareMode,
+                      lpSecurityAttributes, dwCreationDisposition,
+                      dwFlagsAndAttributes, hTemplateFile);
+}
+
+BOOL WINAPI CreateDirectoryA_(LPCSTR lpPathName,
+                              LPSECURITY_ATTRIBUTES lpSecurityAttributes) {
+  WCHAR pathW[NAME_SIZE];
+  if (ACPathToWide(lpPathName, pathW, NAME_SIZE) && IsSavePath(pathW)) {
+    WCHAR newPath[NAME_SIZE];
+    RewriteSavePath(pathW, newPath, NAME_SIZE);
+    EnsureParentDir(newPath);
+    return pCreateDirectoryW(newPath, lpSecurityAttributes);
+  }
+  return pCreateDirectoryA(lpPathName, lpSecurityAttributes);
+}
+
 HookError AttachGlobal() {
   if (DetourAttach(&((PVOID &)pMessageBoxA), ToPtr(&MessageBoxA_)) != NO_ERROR)
     return HookError::ErrHookGlobal;
@@ -753,6 +898,16 @@ HookError AttachGlobal() {
   if (DetourAttach(&((PVOID &)HEAPBLOCK::pReadFile),
                    ToPtr(&HEAPBLOCK::ReadFile)) != NO_ERROR)
     return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pCreateFileA), ToPtr(&CreateFileA_)) != NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pCreateFileW), ToPtr(&CreateFileW_)) != NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pCreateDirectoryA), ToPtr(&CreateDirectoryA_)) !=
+      NO_ERROR)
+    return HookError::ErrHookGlobal;
+  if (DetourAttach(&((PVOID &)pCreateDirectoryW), ToPtr(&CreateDirectoryW_)) !=
+      NO_ERROR)
+    return HookError::ErrHookGlobal;
   return HookError::Success;
 }
 void DetachGlobal() {
@@ -761,6 +916,10 @@ void DetachGlobal() {
   DetourDetach(&((PVOID &)pStrcmpIA), ToPtr(&StrcmpIA_));
   DetourDetach(&((PVOID &)pCreateWindowExA), ToPtr(&CreateWindowExA_));
   DetourDetach(&((PVOID &)pMessageBoxA), ToPtr(&MessageBoxA_));
+  DetourDetach(&((PVOID &)pCreateFileA), ToPtr(&CreateFileA_));
+  DetourDetach(&((PVOID &)pCreateFileW), ToPtr(&CreateFileW_));
+  DetourDetach(&((PVOID &)pCreateDirectoryA), ToPtr(&CreateDirectoryA_));
+  DetourDetach(&((PVOID &)pCreateDirectoryW), ToPtr(&CreateDirectoryW_));
 }
 
 static DWORD dwCharSet, pFaceName;
@@ -839,7 +998,7 @@ BOOL TestFile(LPCSTR lpPath) {
   HANDLE hTestFile;
 
   hTestFile = CreateFileA(lpPath, GENERIC_READ, FILE_SHARE_READ, NULL,
-                          OPEN_EXISTING, FILE_FLAG_NO_BUFFERING, NULL);
+                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (hTestFile != INVALID_HANDLE_VALUE) {
     CloseHandle(hTestFile);
     return TRUE;
@@ -977,6 +1136,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved) {
       } else {
         hDirect3D9Library = NULL;
         pDirect3DCreate9 = NULL;
+      }
+
+      {
+        DWORD attr = GetFileAttributesA("save");
+        g_hasSaveDir =
+            attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+        DebugLog("Save directory %s\n", g_hasSaveDir ? "found" : "not found");
       }
 
       DebugLog("Initializing Subtitles & Globals...\n");
