@@ -283,38 +283,26 @@ SakuraApp::FUNC_NATIVE SakuraApp::pTextTest = NULL;
 extern BOOL doImagePatch;
 
 struct HEAPBLOCK {
-  static const size_t sVmSize0 = 35, sVmSize1 = sVmSize0 + 5;
-  static const DWORD dwVmStart = 0x74daa;
-  constexpr static const BYTE bVmBytes[] =
-      "\x02\x50\x7e\x03\x00"
-      "\x0b\xfa\x00\x0e\x08"
-      "warning\x00\x0c\x05\x08"
-      "\x02\xa5\x73\x03\x00"  // sub_000373a5(250, "patch/warning", 5, 0b)
-      "\x0b\xb8\x0b\x03\x89\x00"
-      "\x03\x85\x00"
-      "\x06\x00\x00\x00\x00";
   typedef void (HEAPBLOCK::*PFUNC_ReadFile)(PCSTR pPath);
   static PFUNC_ReadFile pReadFile;
   void ReadFile(PCSTR pPath) {
     (this->*pReadFile)(pPath);
     if (!strcmp(pPath, "Sakura.hcb") && doImagePatch) {
-      DWORD dwScriptSize;
-      dwScriptSize = dwSize;
-      (this->*pSetSize)(dwSize + sVmSize1);
-      memcpy((PBYTE)pBuf + dwScriptSize, bVmBytes, sVmSize1);
-      *((PBYTE)pBuf + dwVmStart) = 0x06;
-      *(PDWORD)((PBYTE)pBuf + dwVmStart + 1) = dwScriptSize;
-      *(PDWORD)((PBYTE)pBuf + dwScriptSize + sVmSize0 + 1) = dwVmStart + 5;
+      // jump at 0x74daa → 0x77890 (trial splash)
+      *((PBYTE)pBuf + 0x74daa) = 0x06;
+      *(PDWORD)((PBYTE)pBuf + 0x74daa + 1) = 0x77890;
+      // patch string at 0x77896: "taiken_start" → "warning"
+      memcpy((PBYTE)pBuf + 0x77896, "warning\0\0\0\0\0\0", 13);
+      // jump at 0x778c6 → 0x74daf (back to original flow)
+      *((PBYTE)pBuf + 0x778c6) = 0x06;
+      *(PDWORD)((PBYTE)pBuf + 0x778c6 + 1) = 0x74daf;
     }
   }
-  typedef void (HEAPBLOCK::*PFUNC_SetSize)(DWORD dwSize_);
-  static PFUNC_SetSize pSetSize;
 
   void *pBuf;
   DWORD dwSize;
 };
 HEAPBLOCK::PFUNC_ReadFile HEAPBLOCK::pReadFile = NULL;
-HEAPBLOCK::PFUNC_SetSize HEAPBLOCK::pSetSize = NULL;
 
 struct VMARG {
   BYTE bType, bPad0[3];
@@ -680,7 +668,6 @@ void InitGlobal() {
   pCreateDirectoryW =
       (PFUNC_CreateDirectoryW)GetProcAddress(hKernel32, "CreateDirectoryW");
   FromPtr(HEAPBLOCK::pReadFile, (PVOID)0x4344c0);
-  FromPtr(HEAPBLOCK::pSetSize, (PVOID)0x434060);
 
   FromPtr(StringMap::pInflateInit, (PVOID)0x401cd0);
   FromPtr(StringMap::pInflate, (PVOID)0x401de0);
