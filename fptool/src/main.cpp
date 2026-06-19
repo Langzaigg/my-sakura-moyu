@@ -1,52 +1,73 @@
 #include "fvp/image.h"
 #include "fvp/package.h"
 #include <vector>
+#include <windows.h>
+#include <fstream>
+#include <string>
+#include <map>
+#include <sstream>
+#include <algorithm>
 
 #define FPTOOL
 #include "../../filelist.h"
 
+#define NAME_SIZE 0x200
+std::vector<PatchEntry> defaultEntryList;
+
 int runDiff(std::vector<PatchEntry> &entryArray, char *inputName,
-            char *outputName, FvpPackage &output) {
+            char *outputName, FvpPackage &output)
+{
   FvpFileSys fileSys;
 
-  for (PatchEntry &entry : entryArray) {
+  for (PatchEntry &entry : entryArray)
+  {
     char *nameExt, folderPrefix[NAME_SIZE], filePath[NAME_SIZE];
     FILE *patchFile;
     uint8_t *buffer;
     size_t size;
     bool isImage;
 
-    if (strcpy_s(folderPrefix, outputName)) {
+    if (strcpy_s(folderPrefix, outputName))
+    {
       return -4;
     }
     nameExt = strrchr(folderPrefix, '.');
-    if (nameExt) {
+    if (nameExt)
+    {
       *nameExt = 0;
     }
     if (strcat_s(folderPrefix, "/") || strcpy_s(filePath, folderPrefix) ||
-        strcat_s(filePath, entry.patchName)) {
+        strcat_s(filePath, entry.patchName))
+    {
       return -4;
     }
     if (!(entry.methodType == METHOD_REPL || entry.methodType == METHOD_DIFF ||
-          entry.methodType == METHOD_APPEND)) {
+          entry.methodType == METHOD_APPEND))
+    {
       return -5;
     }
     patchFile = fopen(filePath, "rb");
-    if (!patchFile) {
+    if (!patchFile)
+    {
       FvpImage patchImage;
-      if (strcat_s(filePath, ".png")) {
+      if (strcat_s(filePath, ".png"))
+      {
         return -4;
       }
       patchFile = fopen(filePath, "rb");
-      if (!patchFile) {
+      if (!patchFile)
+      {
         return -6;
       }
-      if (patchImage.readPng(patchFile) < 0) {
+      if (patchImage.readPng(patchFile) < 0)
+      {
         return -6;
       }
       patchImage.write(&buffer, &size);
       isImage = true;
-    } else {
+    }
+    else
+    {
       fseek(patchFile, 0, SEEK_END);
       size = ftell(patchFile);
       buffer = new uint8_t[size];
@@ -55,42 +76,57 @@ int runDiff(std::vector<PatchEntry> &entryArray, char *inputName,
       isImage = FvpImage::checkSig(buffer);
     }
 
-    if (isImage) {
+    if (isImage)
+    {
       FvpImage patchImage, originImage;
       uint8_t *originBuffer;
       size_t originSize;
 
-      if (entry.methodType != METHOD_APPEND) {
+      patchImage.read(buffer, size);
+
+      if (entry.methodType != METHOD_APPEND)
+      {
         if (fileSys.openPath(&originBuffer, &originSize, entry.originalName,
-                             entry.methodType != METHOD_DIFF) < 0) {
+                             entry.methodType != METHOD_DIFF) < 0)
+        {
           return -7;
         }
-        patchImage.read(buffer, size);
         originImage.read(originBuffer, originSize);
-        if (entry.offsetX || entry.offsetY) {
+        if (entry.offsetX || entry.offsetY)
+        {
           patchImage.offsetX = entry.offsetX;
           patchImage.offsetY = entry.offsetY;
-        } else if (!(patchImage.offsetX || patchImage.offsetY)) {
+        }
+        else if (!(patchImage.offsetX || patchImage.offsetY))
+        {
           patchImage.offsetX = originImage.offsetX;
           patchImage.offsetY = originImage.offsetY;
         }
 
-        if (entry.methodType == METHOD_DIFF) {
+        if (entry.methodType == METHOD_DIFF)
+        {
           uint32_t offset;
           if (originImage.type == patchImage.type &&
-              originImage.size == patchImage.size) {
-            for (offset = FvpImage::HEADER_SIZE; offset < size; offset++) {
+              originImage.size == patchImage.size)
+          {
+            for (offset = FvpImage::HEADER_SIZE; offset < size; offset++)
+            {
               buffer[offset] -= originBuffer[offset];
             }
-          } else {
+          }
+          else
+          {
             fprintf(stderr,
                     "Warning: %s: mismatch: falling back to replacement\n",
                     entry.originalName);
           }
         }
         delete[] originBuffer;
-      } else {
-        if (entry.offsetX || entry.offsetY) {
+      }
+      else
+      {
+        if (entry.offsetX || entry.offsetY)
+        {
           patchImage.offsetX = entry.offsetX;
           patchImage.offsetY = entry.offsetY;
         }
@@ -99,7 +135,9 @@ int runDiff(std::vector<PatchEntry> &entryArray, char *inputName,
       entry.fileEntryPtr->buffer = buffer;
       entry.fileEntryPtr->size = size;
       output.writeFile(entry.fileEntryPtr, true);
-    } else {
+    }
+    else
+    {
       entry.fileEntryPtr->buffer = buffer;
       entry.fileEntryPtr->size = size;
       output.writeFile(entry.fileEntryPtr, false);
@@ -112,43 +150,52 @@ int runDiff(std::vector<PatchEntry> &entryArray, char *inputName,
 }
 
 int runPatch(std::vector<PatchEntry> &entryArray, char *inputName,
-             FvpPackage &output) {
+             FvpPackage &output)
+{
   FvpFileSys fileSys;
   FILE *diffFile;
 
   diffFile = fopen(inputName, "rb");
-  if (!diffFile) {
+  if (!diffFile)
+  {
     return -4;
   }
   FvpPackage diff(diffFile);
-  if (diff.readHeader() < 0) {
+  if (diff.readHeader() < 0)
+  {
     fclose(diffFile);
     return -5;
   }
-  for (PatchEntry &entry : entryArray) {
+  for (PatchEntry &entry : entryArray)
+  {
     FvpPackage::FileEntry *diffEntryPtr;
     uint8_t *buffer;
     size_t size;
 
     diffEntryPtr = diff.getFileByName(entry.patchName);
-    if (!diffEntryPtr) {
+    if (!diffEntryPtr)
+    {
       fprintf(stderr, "Warning: %s: file not found\n", entry.originalName);
       continue;
     }
-    if (entry.methodType == METHOD_REPL || entry.methodType == METHOD_APPEND) {
+    if (entry.methodType == METHOD_REPL || entry.methodType == METHOD_APPEND)
+    {
       diff.readFile(diffEntryPtr, false);
       entry.fileEntryPtr->buffer = diffEntryPtr->buffer;
       entry.fileEntryPtr->size = diffEntryPtr->storeSize;
       output.writeFile(entry.fileEntryPtr, false);
       entry.fileEntryPtr->buffer = nullptr;
       diffEntryPtr->freeBuffer();
-    } else if (entry.methodType == METHOD_DIFF) {
+    }
+    else if (entry.methodType == METHOD_DIFF)
+    {
       bool isImage;
       uint32_t i;
 
       diff.readFileInfo(diffEntryPtr);
       isImage = FvpImage::checkSig(diffEntryPtr->buffer);
-      if (!isImage) {
+      if (!isImage)
+      {
         diffEntryPtr->freeBuffer();
         fprintf(
             stderr,
@@ -156,14 +203,16 @@ int runPatch(std::vector<PatchEntry> &entryArray, char *inputName,
             entry.originalName);
         continue;
       }
-      if (fileSys.openPath(&buffer, &size, entry.originalName, false) < 0) {
+      if (fileSys.openPath(&buffer, &size, entry.originalName, false) < 0)
+      {
         diffEntryPtr->freeBuffer();
         fprintf(stderr, "Warning: %s: cannot open original file, skipping\n",
                 entry.originalName);
         continue;
       }
       diff.readFile(diffEntryPtr);
-      if (size != diffEntryPtr->size) {
+      if (size != diffEntryPtr->size)
+      {
         fprintf(stderr, "Warning: %s: diff patch size mismatch, skipping\n",
                 entry.originalName);
         diffEntryPtr->freeBuffer();
@@ -171,7 +220,8 @@ int runPatch(std::vector<PatchEntry> &entryArray, char *inputName,
         continue;
       }
       memcpy(buffer, diffEntryPtr->buffer, FvpImage::HEADER_SIZE);
-      for (i = FvpImage::HEADER_SIZE; i < size; i++) {
+      for (i = FvpImage::HEADER_SIZE; i < size; i++)
+      {
         buffer[i] += diffEntryPtr->buffer[i];
       }
       diffEntryPtr->freeBuffer();
@@ -179,7 +229,9 @@ int runPatch(std::vector<PatchEntry> &entryArray, char *inputName,
       entry.fileEntryPtr->size = size;
       output.writeFile(entry.fileEntryPtr, true);
       entry.fileEntryPtr->freeBuffer();
-    } else {
+    }
+    else
+    {
       fprintf(stderr, "Warning: %s: unrecognized patching method, skipping\n",
               entry.originalName);
     }
@@ -188,7 +240,8 @@ int runPatch(std::vector<PatchEntry> &entryArray, char *inputName,
   return 0;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   /* -[dp] <manifest> -i <input> -o <output> */
   int i;
   bool doDiff, doPatch;
@@ -196,24 +249,29 @@ int main(int argc, char *argv[]) {
 
   doDiff = doPatch = false;
   listName = inputName = outputName = nullptr;
-#define STR_ARG(v)                                                             \
-  {                                                                            \
-    i++;                                                                       \
-    if (i >= argc) {                                                           \
-      return 2;                                                                \
-    }                                                                          \
-    (v) = argv[i];                                                             \
+#define STR_ARG(v) \
+  {                \
+    i++;           \
+    if (i >= argc) \
+    {              \
+      return 2;    \
+    }              \
+    (v) = argv[i]; \
   }
-  for (i = 1; i < argc; i++) {
-    if (argv[i][0] == '-') {
-      switch (argv[i][1]) {
+  for (i = 1; i < argc; i++)
+  {
+    if (argv[i][0] == '-')
+    {
+      switch (argv[i][1])
+      {
       case 'd':
         doDiff = true;
         goto argList;
       case 'p':
         doPatch = true;
       argList:
-        if (i + 1 < argc && argv[i + 1][0] != '-') {
+        if (i + 1 < argc && argv[i + 1][0] != '-')
+        {
           STR_ARG(listName)
         }
         break;
@@ -229,54 +287,149 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  FILE *listFile, *outputFile;
+  FILE *outputFile;
   FvpPackage output;
   std::vector<PatchEntry> entryArray;
   int result;
 
   result = -1;
-  if ((doDiff || doPatch) && outputName) {
-    if (listName) {
-      PatchEntry entry{};
-      listFile = fopen(listName, "r");
-      if (!listFile) {
-        return -2;
-      }
-      while (fscanf(listFile, "%4s%32s%32s%d%d", entry.method,
-                    entry.originalName, entry.patchName, &entry.offsetX,
-                    &entry.offsetY) != EOF) {
+  if ((doDiff || doPatch) && outputName)
+  {
+    const char *targetPath = listName;
+    char exePath[NAME_SIZE], tsvPath[NAME_SIZE];
 
-        if (strcmp(entry.method, "R") == 0) {
-          entry.methodType = METHOD_REPL;
-        } else if (strcmp(entry.method, "P") == 0) {
-          entry.methodType = METHOD_DIFF;
-        } else if (strcmp(entry.method, "A") == 0) {
-          entry.methodType = METHOD_APPEND;
-        } else {
-          fclose(listFile);
-          return -3;
+    if (!targetPath)
+    {
+      if (GetModuleFileNameA(NULL, exePath, NAME_SIZE))
+      {
+        char *sep = strrchr(exePath, '\\');
+        if (!sep)
+          sep = strrchr(exePath, '/');
+        if (sep)
+          *(sep + 1) = '\0';
+        else
+          exePath[0] = '\0';
+        if (!strcpy_s(tsvPath, exePath) && !strcat_s(tsvPath, "patch.tsv"))
+        {
+          targetPath = tsvPath;
         }
-        entry.fileEntryPtr = output.appendFile(entry.patchName);
-        entryArray.push_back(entry);
-      }
-      fclose(listFile);
-    } else {
-      entryArray = std::move(defaultEntryList);
-      for (PatchEntry &entry : entryArray) {
-        entry.fileEntryPtr = output.appendFile(entry.patchName);
       }
     }
+
+    if (targetPath)
+    {
+      std::ifstream file(targetPath);
+      if (file.is_open())
+      {
+        std::string line;
+        if (std::getline(file, line))
+        {
+          if (line.size() >= 3 && (unsigned char)line[0] == 0xEF &&
+              (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF)
+          {
+            line = line.substr(3);
+          }
+
+          std::map<std::string, int> headerMap;
+          std::stringstream ss(line);
+          std::string cell;
+          int index = 0;
+          while (std::getline(ss, cell, '\t'))
+          {
+            cell.erase(cell.find_last_not_of(" \n\r\t") + 1);
+            headerMap[cell] = index++;
+          }
+
+          const std::vector<std::string> required = {"originalName", "patchName",
+                                                     "method", "offsetX", "offsetY"};
+          bool valid = true;
+          for (const auto &req : required)
+          {
+            if (headerMap.find(req) == headerMap.end())
+            {
+              fprintf(stderr, "Error: Missing required header [%s] in patch.tsv\n", req.c_str());
+              valid = false;
+              break;
+            }
+          }
+
+          if (valid)
+          {
+            while (std::getline(file, line))
+            {
+              if (line.empty() || line[0] == '\r' || line[0] == '\n')
+                continue;
+
+              std::stringstream dataStream(line);
+              std::vector<std::string> row;
+              while (std::getline(dataStream, cell, '\t'))
+              {
+                cell.erase(cell.find_last_not_of(" \n\r\t") + 1);
+                row.push_back(cell);
+              }
+
+              if (row.size() < headerMap.size())
+                continue;
+
+              try
+              {
+                PatchEntry entry{};
+
+                strncpy_s(entry.method, sizeof(entry.method), row[headerMap["method"]].c_str(), _TRUNCATE);
+                strncpy_s(entry.originalName, sizeof(entry.originalName), row[headerMap["originalName"]].c_str(), _TRUNCATE);
+                strncpy_s(entry.patchName, sizeof(entry.patchName), row[headerMap["patchName"]].c_str(), _TRUNCATE);
+
+                entry.offsetX = std::stoi(row[headerMap["offsetX"]]);
+                entry.offsetY = std::stoi(row[headerMap["offsetY"]]);
+
+                if (!strcmp(entry.method, "R"))
+                  entry.methodType = METHOD_REPL;
+                else if (!strcmp(entry.method, "P"))
+                  entry.methodType = METHOD_DIFF;
+                else if (!strcmp(entry.method, "A"))
+                  entry.methodType = METHOD_APPEND;
+                else
+                  continue;
+
+                entryArray.push_back(entry);
+              }
+              catch (...)
+              {
+                continue;
+              }
+            }
+          }
+        }
+        file.close();
+
+        std::sort(entryArray.begin(), entryArray.end(),
+                  [](const PatchEntry &a, const PatchEntry &b)
+                  {
+                    return strcmp(a.originalName, b.originalName) < 0;
+                  });
+
+        for (PatchEntry &entry : entryArray)
+        {
+          entry.fileEntryPtr = output.appendFile(entry.patchName);
+        }
+      }
+    }
+
     outputFile = fopen(outputName, "wb");
-    if (!outputFile) {
+    if (!outputFile)
+    {
       return -2;
     }
     output.packageFile = outputFile;
     output.writeHeader();
 
     result = -1;
-    if (doDiff) {
+    if (doDiff)
+    {
       result = runDiff(entryArray, inputName, outputName, output);
-    } else if (inputName) {
+    }
+    else if (inputName)
+    {
       result = runPatch(entryArray, inputName, output);
     }
 

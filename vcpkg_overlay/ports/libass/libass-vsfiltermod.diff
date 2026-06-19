@@ -1,0 +1,92 @@
+diff -ruN libass-0.16.0/libass/ass_parse.c libass-0.16.0-mod/libass/ass_parse.c
+--- libass-0.16.0/libass/ass_parse.c	2022-05-02 06:18:26.000000000 +0800
++++ libass-0.16.0-mod/libass/ass_parse.c	2022-08-10 20:26:06.000000000 +0800
+@@ -307,8 +307,28 @@
+ #define tag(name) (mystrcmp(&p, (name)) && (push_arg(args, &nargs, p, name_end), 1))
+ #define complex_tag(name) mystrcmp(&p, (name))
+ 
++        // Extended tags from vsfiltermod
++        if (tag("fshp")) {
++            double val;
++            if (nargs) {
++                val = argtod(*args);
++            } else {
++                val = 0.;
++            }
++            val = (1 - pwr) * render_priv->state.offset_x + val * pwr;
++            render_priv->state.offset_x = val;
++        } else if (tag("fsvp")) {
++            double val;
++            if (nargs) {
++                val = argtod(*args);
++            } else {
++                val = 0.;
++            }
++            val = (1 - pwr) * render_priv->state.offset_y + val * pwr;
++            render_priv->state.offset_y = val;
++        }
+         // New tags introduced in vsfilter 2.39
+-        if (tag("xbord")) {
++        else if (tag("xbord")) {
+             double val;
+             if (nargs) {
+                 val = argtod(*args);
+@@ -408,8 +428,23 @@
+                 val = render_priv->state.style->ScaleY;
+             render_priv->state.scale_y = val;
+         } else if (tag("fsc")) {
++            /*
+             render_priv->state.scale_x = render_priv->state.style->ScaleX;
+             render_priv->state.scale_y = render_priv->state.style->ScaleY;
++            */
++            double val, scale_x, scale_y;
++            if (nargs) {
++                val = argtod(*args) / 100;
++                scale_x = render_priv->state.scale_x * (1 - pwr) + val * pwr;
++                scale_x = (scale_x < 0)? 0 : scale_x;
++                scale_y = render_priv->state.scale_y * (1 - pwr) + val * pwr;
++                scale_y = (scale_y < 0)? 0 : scale_y;
++            } else {
++                scale_x = render_priv->state.style->ScaleX;
++                scale_y = render_priv->state.style->ScaleY;
++            }
++            render_priv->state.scale_x = scale_x;
++            render_priv->state.scale_y = scale_y;
+         } else if (tag("fsp")) {
+             double val;
+             if (nargs) {
+diff -ruN libass-0.16.0/libass/ass_render.c libass-0.16.0-mod/libass/ass_render.c
+--- libass-0.16.0/libass/ass_render.c	2022-05-02 06:18:26.000000000 +0800
++++ libass-0.16.0-mod/libass/ass_render.c	2022-08-04 10:15:36.000000000 +0800
+@@ -1044,6 +1044,8 @@
+ 
+     render_priv->state.pos_x = 0;
+     render_priv->state.pos_y = 0;
++    render_priv->state.offset_x = 0; // ext
++    render_priv->state.offset_y = 0; // ext
+     render_priv->state.org_x = 0;
+     render_priv->state.org_y = 0;
+     render_priv->state.have_origin = 0;
+@@ -2704,9 +2706,9 @@
+         double base_y = 0;
+         get_base_point(&bbox, render_priv->state.alignment, &base_x, &base_y);
+         device_x =
+-            x2scr_pos(render_priv, render_priv->state.pos_x) - base_x;
++            x2scr_pos(render_priv, render_priv->state.pos_x - render_priv->state.offset_x) - base_x;
+         device_y =
+-            y2scr_pos(render_priv, render_priv->state.pos_y) - base_y;
++            y2scr_pos(render_priv, render_priv->state.pos_y + render_priv->state.offset_y) - base_y;
+     }
+ 
+     // x coordinate
+diff -ruN libass-0.16.0/libass/ass_render.h libass-0.16.0-mod/libass/ass_render.h
+--- libass-0.16.0/libass/ass_render.h	2022-02-23 04:30:28.000000000 +0800
++++ libass-0.16.0-mod/libass/ass_render.h	2022-08-03 21:52:18.000000000 +0800
+@@ -216,6 +216,7 @@
+     double frx, fry, frz;
+     double fax, fay;            // text shearing
+     double pos_x, pos_y;        // position
++    double offset_x, offset_y;  // [ext] offset
+     double org_x, org_y;        // origin
+     double scale_x, scale_y;
+     double hspacing;            // distance between letters, in pixels

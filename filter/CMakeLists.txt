@@ -6,9 +6,9 @@ set(CMAKE_CXX_STANDARD 11)
 include_directories(include)
 link_directories(lib)
 
-add_library(filter SHARED src/dllmain.cpp src/resource.h src/patch.rc
-        src/overlay/i_d3d9device.cpp src/overlay/i_d3d9.cpp src/subtitle.cpp include/subtitle.h include/strsub.h include/common.h)
-add_executable(loader src/load.c)
+add_library(filter SHARED src/dllmain.cpp src/fvp_reader.cpp src/resource.h src/patch.rc
+        src/overlay/i_d3d9device.cpp src/overlay/i_d3d9.cpp src/subtitle.cpp include/subtitle.h include/strsub.h include/fvp/reader.h include/common.h)
+add_executable(loader src/load.c src/load.rc)
 target_link_libraries(filter detours d3d9 dxguid ass)
 target_link_libraries(loader filter)
 if (CMAKE_BUILD_TYPE AND ((CMAKE_BUILD_TYPE MATCHES "Debug") OR (CMAKE_BUILD_TYPE MATCHES "Deb-Clang")))
@@ -20,3 +20,11 @@ add_definitions(/D_WIN32_WINNT=0x0601)
 set_target_properties(filter PROPERTIES LINK_FLAGS
         "/export:DetourFinishHelperProcess,@1,NONAME /export:StartExecutable,@2")
 set_target_properties(loader PROPERTIES LINK_FLAGS /subsystem:windows,\"6.01\")
+
+# Copy patch.tsv to the output directory after each build
+add_custom_command(TARGET loader POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../patch.tsv"
+        "$<TARGET_FILE_DIR:loader>/patch.tsv"
+    COMMENT "Copying patch.tsv to output directory"
+)
