@@ -293,9 +293,9 @@ struct HEAPBLOCK {
       *(PDWORD)((PBYTE)pBuf + 0x74daa + 1) = 0x77890;
       // patch string at 0x77896: "taiken_start" → "warning"
       memcpy((PBYTE)pBuf + 0x77896, "warning\0\0\0\0\0\0", 13);
-      // jump at 0x778c6 → 0x74daf (back to original flow)
-      *((PBYTE)pBuf + 0x778c6) = 0x06;
-      *(PDWORD)((PBYTE)pBuf + 0x778c6 + 1) = 0x74daf;
+      // jump at 0x778d6 → 0x74daf (back to original flow)
+      *((PBYTE)pBuf + 0x778d6) = 0x06;
+      *(PDWORD)((PBYTE)pBuf + 0x778d6 + 1) = 0x74daf;
     }
   }
 

@@ -61,4 +61,4 @@ copy /y "%ROOT%fptool\build\Release\fptool.exe" "%DIST%\" >nul 2>&1 && echo   fp
 copy /y "%ROOT%fptool\build\Release\rgba2rgb.exe" "%DIST%\" >nul 2>&1 && echo   rgba2rgb.exe || echo   [skip] rgba2rgb.exe
 
 echo.
-echo Done! Artifacts in dist\
+echo Done! Artifacts in build\Release\
